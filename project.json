@@ -1,0 +1,9 @@
+{
+  "name": "Team PDF Tools (Python)",
+  "version": "1.0.0",
+  "runtime": "Python 3.11+",
+  "server": "Flask",
+  "local_url": "http://127.0.0.1:5050",
+  "features": ["merge", "split", "compress"],
+  "privacy": "Files are processed only by this local Flask server and are not saved to disk."
+}
