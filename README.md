@@ -2,15 +2,16 @@
 
 This is a local Flask version of the PDF tool, with a separate HTML page and a `project.json` configuration file.
 
-## Run locally
+## Run locally (Command Prompt / CMD)
 
-```powershell
-cd Team_PDF_Tools_Python
+```cmd
+cd /d "c:\Users\Deepak Pawar\Downloads\Team_PDF_Tools_Python_range"
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.venv\Scripts\activate.bat
 pip install -r requirements.txt
 python app.py
 ```
+
 
 Open `http://127.0.0.1:5050`.
 
