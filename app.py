@@ -6,14 +6,16 @@ import os
 import re
 import zipfile
 import base64
+import gc
+import tempfile
 from pathlib import Path
 
 import pymupdf as fitz
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import Flask, jsonify, render_template, request, send_file, after_this_request
 from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-MAX_UPLOAD_BYTES = 300 * 1024 * 1024
+MAX_UPLOAD_BYTES = 1200 * 1024 * 1024  # 1.2 GB
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
 
@@ -195,28 +197,81 @@ def merge_pdf():
 
 @app.post("/api/compress")
 def compress_pdf():
+    input_path = None
+    output_path = None
     try:
         upload = request.files.get("file")
         valid_pdf(upload)
         preset = request.form.get("quality", "balanced")
         settings = {
-            "small": (0.85, 60),
-            "balanced": (1.0, 75),
-            "best": (1.25, 88),
-            "ultra": (1.55, 96),
+            "small": (0.7, 50, 900),
+            "balanced": (0.85, 65, 1200),
+            "best": (1.0, 80, 1600),
+            "ultra": (1.2, 90, 2000),
         }
-        scale, quality = settings.get(preset, settings["balanced"])
-        source = fitz.open(stream=upload.read(), filetype="pdf")
+        scale, quality, max_dim = settings.get(preset, settings["balanced"])
+
+        # Stream upload to disk to avoid blowing up memory on large files
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
+            upload.save(in_tmp.name)
+            input_path = in_tmp.name
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as out_tmp:
+            output_path = out_tmp.name
+
+        source = fitz.open(input_path)
         result = fitz.open()
-        for page in source:
-            pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-            new_page = result.new_page(width=page.rect.width, height=page.rect.height)
-            new_page.insert_image(new_page.rect, stream=pixmap.tobytes("jpeg", jpg_quality=quality))
-        pdf_bytes = result.tobytes(garbage=4, deflate=True)
-        source.close()
+
+        for idx, page in enumerate(source):
+            rect = page.rect
+            longest = max(rect.width, rect.height) or 1
+            eff_scale = min(scale, max_dim / longest)
+
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(eff_scale, eff_scale), alpha=False)
+            jpeg_bytes = pixmap.tobytes("jpeg", jpg_quality=quality)
+            del pixmap
+
+            new_page = result.new_page(width=rect.width, height=rect.height)
+            new_page.insert_image(new_page.rect, stream=jpeg_bytes)
+            del jpeg_bytes
+
+            if (idx + 1) % 10 == 0:
+                gc.collect()
+
+        result.save(output_path, garbage=4, deflate=True)
         result.close()
-        return send_file(io.BytesIO(pdf_bytes), as_attachment=True, download_name=output_name(upload.filename, "compressed"), mimetype="application/pdf")
+        source.close()
+        del result, source
+        gc.collect()
+
+        @after_this_request
+        def cleanup(response):
+            try:
+                if input_path and os.path.exists(input_path):
+                    os.remove(input_path)
+                if output_path and os.path.exists(output_path):
+                    os.remove(output_path)
+            except Exception:
+                pass
+            return response
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=output_name(upload.filename, "compressed"),
+            mimetype="application/pdf"
+        )
     except Exception as error:
+        if input_path and os.path.exists(input_path):
+            try:
+                os.remove(input_path)
+            except Exception:
+                pass
+        if output_path and os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except Exception:
+                pass
         return jsonify({"error": str(error)}), 400
 
 

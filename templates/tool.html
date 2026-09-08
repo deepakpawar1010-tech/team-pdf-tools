@@ -806,10 +806,15 @@
       </div>
 
       <div id="compressArea" class="hidden">
-        <div class="section-title">
-          <h2>Ready to Compress</h2>
-          <span class="hint">Select quality level in the sidebar</span>
+        <div class="selection-bar">
+          <strong id="compressFileName">Document</strong>
+          <span class="tile-tag" id="compressMetaBadge" style="margin-left: 8px;">0 pages</span>
         </div>
+        <div class="section-title">
+          <h2>Document Pages (<span id="compressPageCount">0</span>)</h2>
+          <span class="hint">All pages will be processed &amp; compressed</span>
+        </div>
+        <div id="compressPageGrid" class="split-pages"></div>
       </div>
     </main>
 
@@ -943,6 +948,8 @@
           renderPages();
         } else if (mode === 'merge') {
           renderFiles();
+        } else if (mode === 'compress') {
+          renderCompressArea();
         }
         show('');
         updateAreas();
@@ -955,6 +962,22 @@
 
     function previewForPage(n) {
       return state.previews.find(p => p.page === n);
+    }
+
+    function renderCompressArea() {
+      const grid = $('compressPageGrid');
+      if (!grid || !state.files.length) return;
+      const file = state.files[0];
+      if ($('compressFileName')) $('compressFileName').textContent = file.name;
+      if ($('compressMetaBadge')) $('compressMetaBadge').textContent = `${state.previews.length} pages • ${bytes(file.size)}`;
+      if ($('compressPageCount')) $('compressPageCount').textContent = state.previews.length;
+
+      grid.innerHTML = state.previews.map(p => `
+        <article class="page-card" style="cursor: default;" data-page="${p.page}">
+          <img src="${p.data}" alt="Page ${p.page}">
+          <div class="page-number">Page ${p.page}</div>
+        </article>
+      `).join('');
     }
 
     function renderFiles() {
@@ -1309,7 +1332,11 @@
       }
 
       setBusy(true);
-      show('Processing PDF…');
+      if (mode === 'compress') {
+        show('Compressing pages… this may take a moment for large files.');
+      } else {
+        show('Processing PDF…');
+      }
 
       try {
         const r = await fetch('/api/' + mode, { method: 'POST', body: form });
@@ -1331,7 +1358,7 @@
         a.download = name;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        show('Done! Your download has started.', false, true);
+        show(mode === 'compress' ? 'Done! Compressed PDF downloaded.' : 'Done! Your download has started.', false, true);
       } catch (e) {
         show(e.message || 'Could not process PDF.', true);
       } finally {
