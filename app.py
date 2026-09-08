@@ -33,11 +33,41 @@ def home():
     return render_template("home.html")
 
 
+COMING_SOON = {
+    "pdf-to-word": {
+        "title": "PDF to Word",
+        "description": "Convert PDF documents into editable Microsoft Word (.docx) files while preserving original typography and formatting.",
+        "badge": "DOCX Conversion",
+        "icon": "word"
+    },
+    "word-to-pdf": {
+        "title": "Word to PDF",
+        "description": "Convert Microsoft Word documents directly into high-fidelity, standardized PDF documents.",
+        "badge": "DOCX to PDF",
+        "icon": "word-to-pdf"
+    },
+    "pdf-to-markdown": {
+        "title": "PDF to Markdown",
+        "description": "Extract structured text, headers, lists, and tables into clean, LLM-ready Markdown (.md) documents.",
+        "badge": "Markdown / AI Ready",
+        "icon": "markdown"
+    },
+    "pdf-to-excel": {
+        "title": "PDF to Excel",
+        "description": "Automatically detect tabular data and financial statements in PDFs and export them directly to Excel (.xlsx) spreadsheets.",
+        "badge": "Spreadsheet OCR",
+        "icon": "excel"
+    }
+}
+
+
 @app.get("/<tool>")
 def tool_page(tool: str):
-    if tool not in {"merge", "split", "compress"}:
-        return "Page not found", 404
-    return render_template("tool.html", tool=tool)
+    if tool in {"merge", "split", "compress"}:
+        return render_template("tool.html", tool=tool)
+    if tool in COMING_SOON:
+        return render_template("coming_soon.html", tool=tool, info=COMING_SOON[tool])
+    return "Page not found", 404
 
 
 @app.post("/api/info")

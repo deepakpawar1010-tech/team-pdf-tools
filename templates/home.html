@@ -74,19 +74,34 @@
 
     .brand-icon svg { width: 20px; height: 20px; stroke-width: 2.2; }
 
-    nav { display: flex; gap: 8px; align-items: center; }
+    nav { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
     nav a {
       color: var(--text-muted);
       text-decoration: none;
       font-weight: 600;
-      font-size: 14px;
-      padding: 8px 16px;
+      font-size: 13px;
+      padding: 6px 12px;
       border-radius: var(--radius-sm);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       transition: all 0.15s ease;
     }
     nav a:hover {
       color: var(--text);
       background: #f1f5f9;
+    }
+
+    .soon-badge {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: #fffbeb;
+      color: #d97706;
+      border: 1px solid #fde68a;
+      padding: 1px 6px;
+      border-radius: 9999px;
     }
 
     main {
@@ -326,9 +341,13 @@
       <span>Team <b>PDF</b></span>
     </a>
     <nav>
-      <a href="/split">Split PDF</a>
-      <a href="/merge">Merge PDF</a>
-      <a href="/compress">Compress PDF</a>
+      <a href="/split">Split</a>
+      <a href="/merge">Merge</a>
+      <a href="/compress">Compress</a>
+      <a href="/pdf-to-word">PDF to Word <span class="soon-badge">Soon</span></a>
+      <a href="/word-to-pdf">Word to PDF <span class="soon-badge">Soon</span></a>
+      <a href="/pdf-to-markdown">PDF to Markdown <span class="soon-badge">Soon</span></a>
+      <a href="/pdf-to-excel">PDF to Excel <span class="soon-badge">Soon</span></a>
     </nav>
   </header>
 
@@ -342,7 +361,12 @@
       <p>Lightning-fast PDF tools powered by Python and PyMuPDF. No subscription traps, no hidden limits, and your documents are never saved to disk.</p>
     </section>
 
-    <section class="grid">
+    <div class="section-title" style="margin-bottom: 18px;">
+      <h2 style="font-size: 20px; font-weight: 800;">Core PDF Tools</h2>
+      <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">Active &amp; Ready</span>
+    </div>
+
+    <section class="grid" style="margin-bottom: 50px;">
       <a class="tile" href="/split">
         <div class="tile-icon icon-split">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
@@ -376,6 +400,73 @@
         <div class="tile-footer">
           <span class="tile-tag">4 Presets</span>
           <span>Open Tool &rarr;</span>
+        </div>
+      </a>
+    </section>
+
+    <div class="section-title" style="margin-bottom: 18px;">
+      <h2 style="font-size: 20px; font-weight: 800;">Convert &amp; Export</h2>
+      <span class="soon-badge" style="font-size: 11px; padding: 3px 8px;">Coming Soon</span>
+    </div>
+
+    <section class="grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-bottom: 70px;">
+      <a class="tile" href="/pdf-to-word" style="background: #ffffff;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div class="tile-icon icon-word" style="background: #eff6ff; color: #2563eb;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+          </div>
+          <span class="soon-badge">Coming Soon</span>
+        </div>
+        <h2>PDF to Word</h2>
+        <p>Convert PDF documents into editable Microsoft Word (.docx) files with layout preservation.</p>
+        <div class="tile-footer">
+          <span class="tile-tag">DOCX</span>
+          <span style="color: #d97706;">Preview &rarr;</span>
+        </div>
+      </a>
+
+      <a class="tile" href="/word-to-pdf" style="background: #ffffff;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div class="tile-icon icon-word-to-pdf" style="background: #fef2f2; color: #dc2626;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          </div>
+          <span class="soon-badge">Coming Soon</span>
+        </div>
+        <h2>Word to PDF</h2>
+        <p>Convert Microsoft Word (.docx) documents directly into standardized, print-ready PDF files.</p>
+        <div class="tile-footer">
+          <span class="tile-tag">DOCX &rarr; PDF</span>
+          <span style="color: #d97706;">Preview &rarr;</span>
+        </div>
+      </a>
+
+      <a class="tile" href="/pdf-to-markdown" style="background: #ffffff;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div class="tile-icon icon-markdown" style="background: #faf5ff; color: #9333ea;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="5" width="18" height="14" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M7 15V9l3 3 3-3v6m4-6v6m0 0l-2-2m2 2l2-2"/></svg>
+          </div>
+          <span class="soon-badge">Coming Soon</span>
+        </div>
+        <h2>PDF to Markdown</h2>
+        <p>Extract structured headings, lists, tables, and code snippets into clean Markdown (.md) for AI and docs.</p>
+        <div class="tile-footer">
+          <span class="tile-tag">Markdown / LLM</span>
+          <span style="color: #d97706;">Preview &rarr;</span>
+        </div>
+      </a>
+
+      <a class="tile" href="/pdf-to-excel" style="background: #ffffff;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div class="tile-icon icon-excel" style="background: #f0fdf4; color: #16a34a;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+          </div>
+          <span class="soon-badge">Coming Soon</span>
+        </div>
+        <h2>PDF to Excel</h2>
+        <p>Detect tabular data and financial statements in PDF files and export them to Excel (.xlsx) spreadsheets.</p>
+        <div class="tile-footer">
+          <span class="tile-tag">XLSX Tables</span>
+          <span style="color: #d97706;">Preview &rarr;</span>
         </div>
       </a>
     </section>
