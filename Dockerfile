@@ -16,4 +16,4 @@ COPY . .
 EXPOSE 5050
 
 # Run with Gunicorn using dynamic PORT
-CMD exec gunicorn app:app --bind 0.0.0.0:${PORT:-5050} --workers 2 --threads 4 --timeout 120
+CMD exec gunicorn app:app --bind 0.0.0.0:${PORT:-5050} --workers 2 --threads 4 --timeout 300

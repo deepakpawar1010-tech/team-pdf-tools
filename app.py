@@ -107,31 +107,43 @@ def previews():
         output = []
         for file_index, upload in enumerate(uploads):
             valid_pdf(upload)
-            data = upload.read()
-            document = fitz.open(stream=data, filetype="pdf")
-            page_count = document.page_count
-            if mode == "merge":
-                page_numbers = [1] if page_count else []
-            elif requested_pages is None:
-                page_numbers = list(range(1, page_count + 1))
-            else:
-                page_numbers = sorted(p for p in requested_pages if p <= page_count)
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    upload.save(tmp_file.name)
+                    tmp_path = tmp_file.name
 
-            for page_number in page_numbers:
-                page = document.load_page(page_number - 1)
-                rect = page.rect
-                longest = max(rect.width, rect.height) or 1
-                scale = min(1.0, 240 / longest)
-                pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-                jpeg = pixmap.tobytes("jpeg", jpg_quality=65)
-                output.append({
-                    "fileIndex": file_index,
-                    "page": page_number,
-                    "pages": page_count,
-                    "name": upload.filename,
-                    "data": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii"),
-                })
-            document.close()
+                document = fitz.open(tmp_path)
+                page_count = document.page_count
+                if mode == "merge":
+                    page_numbers = [1] if page_count else []
+                elif requested_pages is None:
+                    page_numbers = list(range(1, page_count + 1))
+                else:
+                    page_numbers = sorted(p for p in requested_pages if p <= page_count)
+
+                for page_number in page_numbers:
+                    page = document.load_page(page_number - 1)
+                    rect = page.rect
+                    longest = max(rect.width, rect.height) or 1
+                    scale = min(1.0, 240 / longest)
+                    pixmap = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+                    jpeg = pixmap.tobytes("jpeg", jpg_quality=65)
+                    del pixmap
+                    output.append({
+                        "fileIndex": file_index,
+                        "page": page_number,
+                        "pages": page_count,
+                        "name": upload.filename,
+                        "data": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii"),
+                    })
+                document.close()
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
 
         return jsonify({"previews": output})
     except Exception as error:
@@ -204,12 +216,12 @@ def compress_pdf():
         valid_pdf(upload)
         preset = request.form.get("quality", "balanced")
         settings = {
-            "small": (0.7, 50, 900),
-            "balanced": (0.85, 65, 1200),
-            "best": (1.0, 80, 1600),
-            "ultra": (1.2, 90, 2000),
+            "small": (96, 50),
+            "balanced": (144, 68),
+            "best": (200, 80),
+            "ultra": (280, 90),
         }
-        scale, quality, max_dim = settings.get(preset, settings["balanced"])
+        dpi_target, quality = settings.get(preset, settings["balanced"])
 
         # Stream upload to disk to avoid blowing up memory on large files
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
@@ -219,29 +231,15 @@ def compress_pdf():
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as out_tmp:
             output_path = out_tmp.name
 
-        source = fitz.open(input_path)
-        result = fitz.open()
+        doc = fitz.open(input_path)
+        try:
+            doc.rewrite_images(dpi_target=dpi_target, quality=quality)
+        except Exception:
+            pass
 
-        for idx, page in enumerate(source):
-            rect = page.rect
-            longest = max(rect.width, rect.height) or 1
-            eff_scale = min(scale, max_dim / longest)
-
-            pixmap = page.get_pixmap(matrix=fitz.Matrix(eff_scale, eff_scale), alpha=False)
-            jpeg_bytes = pixmap.tobytes("jpeg", jpg_quality=quality)
-            del pixmap
-
-            new_page = result.new_page(width=rect.width, height=rect.height)
-            new_page.insert_image(new_page.rect, stream=jpeg_bytes)
-            del jpeg_bytes
-
-            if (idx + 1) % 10 == 0:
-                gc.collect()
-
-        result.save(output_path, garbage=4, deflate=True)
-        result.close()
-        source.close()
-        del result, source
+        doc.save(output_path, garbage=4, deflate=True, clean=True)
+        doc.close()
+        del doc
         gc.collect()
 
         @after_this_request
