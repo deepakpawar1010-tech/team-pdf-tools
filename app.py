@@ -34,6 +34,11 @@ def valid_pdf(upload):
         raise ValueError("Please upload a PDF file.")
 
 
+def valid_docx(upload):
+    if not upload or not (upload.filename.lower().endswith(".docx") or upload.filename.lower().endswith(".doc")):
+        raise ValueError("Please upload a Microsoft Word (.docx) document.")
+
+
 def output_name(filename: str, suffix: str) -> str:
     stem = Path(filename).stem
     safe_stem = re.sub(r"[^\w.-]+", "-", stem).strip("-") or "document"
@@ -52,12 +57,6 @@ def home():
 
 
 COMING_SOON = {
-    "word-to-pdf": {
-        "title": "Word to PDF",
-        "description": "Convert Microsoft Word documents directly into high-fidelity, standardized PDF documents.",
-        "badge": "DOCX to PDF",
-        "icon": "word-to-pdf"
-    },
     "pdf-to-markdown": {
         "title": "PDF to Markdown",
         "description": "Extract structured text, headers, lists, and tables into clean, LLM-ready Markdown (.md) documents.",
@@ -75,7 +74,7 @@ COMING_SOON = {
 
 @app.get("/<tool>")
 def tool_page(tool: str):
-    if tool in {"merge", "split", "compress", "pdf-to-word"}:
+    if tool in {"merge", "split", "compress", "pdf-to-word", "word-to-pdf"}:
         return render_template("tool.html", tool=tool)
     if tool in COMING_SOON:
         return render_template("coming_soon.html", tool=tool, info=COMING_SOON[tool])
@@ -355,6 +354,62 @@ def pdf_to_word():
             as_attachment=True,
             download_name=output_docx_name(upload.filename, "converted"),
             mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    except Exception as error:
+        if input_path and os.path.exists(input_path):
+            try:
+                os.remove(input_path)
+            except Exception:
+                pass
+        if output_path and os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except Exception:
+                pass
+        return jsonify({"error": str(error)}), 400
+
+
+@app.post("/api/word-to-pdf")
+def word_to_pdf():
+    input_path = None
+    output_path = None
+    try:
+        upload = request.files.get("file")
+        valid_docx(upload)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as in_tmp:
+            upload.save(in_tmp.name)
+            input_path = in_tmp.name
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as out_tmp:
+            output_path = out_tmp.name
+
+        doc = fitz.open(input_path)
+        pdf_bytes = doc.convert_to_pdf()
+        doc.close()
+        del doc
+
+        with open(output_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        gc.collect()
+
+        @after_this_request
+        def cleanup(response):
+            try:
+                if input_path and os.path.exists(input_path):
+                    os.remove(input_path)
+                if output_path and os.path.exists(output_path):
+                    os.remove(output_path)
+            except Exception:
+                pass
+            return response
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=output_name(upload.filename, "converted"),
+            mimetype="application/pdf"
         )
     except Exception as error:
         if input_path and os.path.exists(input_path):

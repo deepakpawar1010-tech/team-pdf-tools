@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ tool|title }} PDF — Team PDF Studio</title>
+  <title>{% if tool=='pdf-to-word' %}PDF to Word{% elif tool=='word-to-pdf' %}Word to PDF{% else %}{{ tool|title }} PDF{% endif %} — Team PDF Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -810,7 +810,7 @@
       <a class="{% if tool=='merge' %}active{% endif %}" href="/merge">Merge</a>
       <a class="{% if tool=='compress' %}active{% endif %}" href="/compress">Compress</a>
       <a class="{% if tool=='pdf-to-word' %}active{% endif %}" href="/pdf-to-word">PDF to Word</a>
-      <a href="/word-to-pdf">Word to PDF <span class="soon-badge">Soon</span></a>
+      <a class="{% if tool=='word-to-pdf' %}active{% endif %}" href="/word-to-pdf">Word to PDF</a>
       <a href="/pdf-to-markdown">PDF to Markdown <span class="soon-badge">Soon</span></a>
       <a href="/pdf-to-excel">PDF to Excel <span class="soon-badge">Soon</span></a>
     </nav>
@@ -822,18 +822,18 @@
         <div class="drop-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 0 1-.88-7.903A5 5 0 1 1 15.9 6L16 6a5 5 0 0 1 1 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
         </div>
-        <strong>{% if tool=='merge' %}Drop your PDF files here{% elif tool=='pdf-to-word' %}Drop your PDF file here to convert to Word{% else %}Drop your PDF file here{% endif %}</strong>
+        <strong>{% if tool=='merge' %}Drop your PDF files here{% elif tool=='pdf-to-word' %}Drop your PDF file here to convert to Word{% elif tool=='word-to-pdf' %}Drop your Word document (.docx) here to convert to PDF{% else %}Drop your PDF file here{% endif %}</strong>
         <span>or click to browse files from your computer</span>
         <div class="browse-btn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14"/></svg>
           Choose {% if tool=='merge' %}Files{% else %}File{% endif %}
         </div>
-        <input id="files" type="file" accept="application/pdf" {% if tool=='merge' %}multiple{% endif %}>
+        <input id="files" type="file" accept="{% if tool=='word-to-pdf' %}.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword{% else %}application/pdf{% endif %}" {% if tool=='merge' %}multiple{% endif %}>
       </label>
 
       <div id="empty" class="empty">
         <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z"/></svg>
-        <h2>{% if tool=='merge' %}Add PDF files to merge{% elif tool=='split' %}Add a PDF to split{% elif tool=='pdf-to-word' %}Add a PDF to convert to Word{% else %}Add a PDF to compress{% endif %}</h2>
+        <h2>{% if tool=='merge' %}Add PDF files to merge{% elif tool=='split' %}Add a PDF to split{% elif tool=='pdf-to-word' %}Add a PDF to convert to Word{% elif tool=='word-to-pdf' %}Add a Word document to convert to PDF{% else %}Add a PDF to compress{% endif %}</h2>
         <p>Private &amp; secure — files are processed in memory and never stored.</p>
       </div>
 
@@ -916,12 +916,49 @@
           </ul>
         </div>
       </div>
+
+      <div id="wordToPdfArea" class="hidden">
+        <div style="margin-bottom: 24px; display: flex; align-items: flex-start; justify-content: space-between;">
+          <div>
+            <span style="font-size: 11px; font-weight: 800; color: #2563eb; text-transform: uppercase; letter-spacing: 1px;">Word to PDF</span>
+            <h2 style="font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px;">Convert Word to Standard PDF</h2>
+          </div>
+          <button id="clearWordToPdfFile" class="small-btn" type="button" style="color: #2563eb;">Clear file</button>
+        </div>
+
+        <div id="wordToPdfFileCard" style="background: white; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px 22px; display: flex; align-items: center; gap: 16px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+          <div style="width: 44px; height: 44px; background: #eff6ff; color: #2563eb; border-radius: 10px; display: grid; place-items: center; font-weight: 900; font-size: 14px; flex-shrink: 0;">DOCX</div>
+          <div style="flex: 1; min-width: 0;">
+            <div id="wordToPdfFileName" style="font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);"></div>
+            <div id="wordToPdfFileMeta" style="font-size: 13px; color: var(--text-muted); margin-top: 4px;"></div>
+          </div>
+          <button id="removeWordToPdfFile" class="icon-btn" title="Remove file" type="button" style="border: 0; background: none; font-size: 22px; color: var(--text-muted); cursor: pointer; display: grid; place-items: center;">&times;</button>
+        </div>
+
+        <div style="background: white; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; margin-bottom: 20px;">
+          <h3 style="font-size: 14px; font-weight: 800; margin-bottom: 12px; color: var(--text);">What gets preserved in your PDF document:</h3>
+          <ul style="list-style: none; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; color: var(--text-muted);">
+            <li style="display: flex; align-items: center; gap: 8px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Typography &amp; Layout</strong> &bull; fonts, headings, line spacing, margins &amp; lists</span>
+            </li>
+            <li style="display: flex; align-items: center; gap: 8px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Tables &amp; Alignment</strong> &bull; borders, cell shading, headers, and column widths</span>
+            </li>
+            <li style="display: flex; align-items: center; gap: 8px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>High-Resolution Images</strong> &bull; charts, figures, and graphics preserved cleanly</span>
+            </li>
+          </ul>
+        </div>
+      </div>
     </main>
 
     <aside class="side">
       <h1>
-        <span style="color: {% if tool=='pdf-to-word' %}#2563eb{% else %}var(--primary){% endif %};">●</span>
-        {% if tool=='pdf-to-word' %}PDF to Word{% else %}{{ tool|title }} PDF{% endif %}
+        <span style="color: {% if tool in ['pdf-to-word', 'word-to-pdf'] %}#2563eb{% else %}var(--primary){% endif %};">●</span>
+        {% if tool=='pdf-to-word' %}PDF to Word{% elif tool=='word-to-pdf' %}Word to PDF{% else %}{{ tool|title }} PDF{% endif %}
       </h1>
 
       <div class="side-content">
@@ -984,6 +1021,19 @@
         <p class="hint" style="line-height: 1.6; margin-top: 14px;">
           Converts text, native Word tables, fonts, and embedded images. Opens seamlessly in Microsoft Word, Google Docs, Apple Pages, or LibreOffice.
         </p>
+        {% elif tool=='word-to-pdf' %}
+        <label class="field-label">Conversion Output</label>
+        <div style="background: white; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; gap: 10px; margin-bottom: 18px;">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: #fff1f2; color: var(--primary); display: grid; place-items: center; font-weight: 800; font-size: 11px;">PDF</div>
+          <div>
+            <div style="font-size: 13.5px; font-weight: 700; color: var(--text);">Standard PDF Document (.pdf)</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">High-fidelity vector PDF</div>
+          </div>
+        </div>
+
+        <p class="hint" style="line-height: 1.6; margin-top: 14px;">
+          Converts Microsoft Word (.docx) documents directly into standardized, print-ready PDF files with fonts, tables, and images preserved.
+        </p>
         {% else %}
         <p class="hint" style="line-height: 1.6; margin-top: 10px;">
           Upload multiple PDF documents. Drag and drop the thumbnail cards on the left to reorder them before merging.
@@ -991,8 +1041,8 @@
         {% endif %}
       </div>
 
-      <button id="submit" class="primary" {% if tool=='pdf-to-word' %}style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);"{% endif %}>
-        <span>{% if tool=='pdf-to-word' %}Convert to Word (.docx){% else %}{{ tool|title }} PDF{% endif %}</span>
+      <button id="submit" class="primary" {% if tool in ['pdf-to-word', 'word-to-pdf'] %}style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);"{% endif %}>
+        <span>{% if tool=='pdf-to-word' %}Convert to Word (.docx){% elif tool=='word-to-pdf' %}Convert to PDF (.pdf){% else %}{{ tool|title }} PDF{% endif %}</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>
       </button>
       <p id="message" class="message"></p>
@@ -1039,7 +1089,7 @@
       if (v) {
         $('submit').innerHTML = '<span>Processing…</span>';
       } else {
-        const label = mode === 'pdf-to-word' ? 'Convert to Word (.docx)' : `${mode[0].toUpperCase() + mode.slice(1)} PDF`;
+        const label = mode === 'pdf-to-word' ? 'Convert to Word (.docx)' : mode === 'word-to-pdf' ? 'Convert to PDF (.pdf)' : `${mode[0].toUpperCase() + mode.slice(1)} PDF`;
         $('submit').innerHTML = `<span>${label}</span> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>`;
       }
     }
@@ -1051,6 +1101,7 @@
       $('splitArea').classList.toggle('hidden', mode !== 'split' || !has);
       $('compressArea').classList.toggle('hidden', mode !== 'compress' || !has);
       $('wordArea').classList.toggle('hidden', mode !== 'pdf-to-word' || !has);
+      $('wordToPdfArea').classList.toggle('hidden', mode !== 'word-to-pdf' || !has);
     }
 
     // --- On-Demand Thumbnail Pipeline & Lazy Renderer ---
@@ -1239,6 +1290,19 @@
         }
       }
 
+      // In Word to PDF Mode: Instant 0.01s load
+      if (mode === 'word-to-pdf' && state.files.length > 0) {
+        try {
+          renderWordToPdfArea();
+          show('');
+          updateAreas();
+          setBusy(false);
+          return;
+        } catch (e) {
+          console.warn('Word to PDF fast load fallback:', e);
+        }
+      }
+
       // In Split Mode: Instant on-demand lazy loading engine (< 1s load)
       if (mode === 'split' && window.pdfjsLib && state.files.length > 0) {
         try {
@@ -1405,6 +1469,29 @@
       const removeBtn = $('removeWordFile');
       if (removeBtn) removeBtn.onclick = cleanup;
       const clearBtn = $('clearWordFile');
+      if (clearBtn) clearBtn.onclick = cleanup;
+    }
+
+    function renderWordToPdfArea() {
+      if (!state.files.length) return;
+      const file = state.files[0];
+      if ($('wordToPdfFileName')) $('wordToPdfFileName').textContent = file.name;
+      if ($('wordToPdfFileMeta')) $('wordToPdfFileMeta').textContent = `Word Document • ${bytes(file.size)}`;
+
+      const cleanup = () => {
+        state.files = [];
+        state.fileBytes = null;
+        state.previews = [];
+        state.previewCache.clear();
+        state.renderingPages.clear();
+        renderQueue.length = 0;
+        if (pageObserver) { pageObserver.disconnect(); pageObserver = null; }
+        updateAreas();
+      };
+
+      const removeBtn = $('removeWordToPdfFile');
+      if (removeBtn) removeBtn.onclick = cleanup;
+      const clearBtn = $('clearWordToPdfFile');
       if (clearBtn) clearBtn.onclick = cleanup;
     }
 
@@ -1634,7 +1721,16 @@
     }));
 
     $('drop').addEventListener('drop', ev => {
-      state.files = [...ev.dataTransfer.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+      if (mode === 'word-to-pdf') {
+        state.files = [...ev.dataTransfer.files].filter(f =>
+          f.name.toLowerCase().endsWith('.docx') ||
+          f.name.toLowerCase().endsWith('.doc') ||
+          f.type.includes('wordprocessingml') ||
+          f.type.includes('msword')
+        );
+      } else {
+        state.files = [...ev.dataTransfer.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+      }
       updateAreas();
       if (state.files.length) loadPreviews();
     });
@@ -1794,7 +1890,7 @@
     }
 
     $('submit').onclick = async () => {
-      if (!state.files.length) return show('Please choose a PDF file first.', true);
+      if (!state.files.length) return show(mode === 'word-to-pdf' ? 'Please choose a Word (.docx) file first.' : 'Please choose a PDF file first.', true);
       if (mode === 'merge' && state.files.length < 2) return show('Merge requires at least two PDF files.', true);
 
       const form = new FormData();
@@ -1933,6 +2029,8 @@
 
       if (mode === 'pdf-to-word') {
         show('Converting PDF to editable Word (.docx)… this may take a moment.');
+      } else if (mode === 'word-to-pdf') {
+        show('Converting Word to PDF… this may take a moment.');
       } else if (mode === 'compress') {
         show('Compressing pages… this may take a moment for large files.');
       } else {
@@ -1957,7 +2055,9 @@
         }
 
         const blob = await r.blob();
-        let name = mode === 'pdf-to-word' ? (state.files[0].name.replace(/\.pdf$/i, '') + '-converted.docx') : mode + '.pdf';
+        let name = mode === 'pdf-to-word' ? (state.files[0].name.replace(/\.pdf$/i, '') + '-converted.docx')
+                 : mode === 'word-to-pdf' ? (state.files[0].name.replace(/\.(docx|doc)$/i, '') + '-converted.pdf')
+                 : mode + '.pdf';
         const cd = r.headers.get('Content-Disposition');
         const m = cd && cd.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
         if (m) name = decodeURIComponent(m[1]);
@@ -1968,9 +2068,9 @@
         a.download = name;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        show(mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' : mode === 'compress' ? 'Done! Compressed PDF downloaded.' : 'Done! Your download has started.', false, true);
+        show(mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' : mode === 'word-to-pdf' ? 'Done! PDF document downloaded.' : mode === 'compress' ? 'Done! Compressed PDF downloaded.' : 'Done! Your download has started.', false, true);
       } catch (e) {
-        show(e.message || 'Could not process PDF.', true);
+        show(e.message || (mode === 'word-to-pdf' ? 'Could not convert Word document.' : 'Could not process PDF.'), true);
       } finally {
         setBusy(false);
       }
