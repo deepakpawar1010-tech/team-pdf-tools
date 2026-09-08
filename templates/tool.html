@@ -7,6 +7,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"></script>
+  <script>
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
   <style>
     :root {
       --bg: #f8fafc;
@@ -927,6 +934,65 @@
     async function loadPreviews() {
       show('Rendering previews…');
       setBusy(true);
+
+      // 1. Ultra-fast Client-Side Preview via PDF.js (works for 1GB+ files without network upload)
+      if (window.pdfjsLib && state.files.length > 0) {
+        try {
+          state.previews = [];
+          const uploads = (mode === 'merge') ? state.files : [state.files[0]];
+          for (let fileIndex = 0; fileIndex < uploads.length; fileIndex++) {
+            const file = uploads[fileIndex];
+            const buffer = await file.arrayBuffer();
+            const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
+            const total = doc.numPages;
+            const pagesToRender = (mode === 'merge') ? [1] : Array.from({ length: total }, (_, i) => i + 1);
+
+            for (const pageNum of pagesToRender) {
+              const page = await doc.getPage(pageNum);
+              const vp = page.getViewport({ scale: 1.0 });
+              const longest = Math.max(vp.width, vp.height) || 1;
+              const scale = Math.min(1.0, 240 / longest);
+              const scaledVp = page.getViewport({ scale });
+
+              const canvas = document.createElement('canvas');
+              canvas.width = scaledVp.width;
+              canvas.height = scaledVp.height;
+              const ctx = canvas.getContext('2d');
+              await page.render({ canvasContext: ctx, viewport: scaledVp }).promise;
+
+              state.previews.push({
+                fileIndex: fileIndex,
+                page: pageNum,
+                pages: total,
+                name: file.name,
+                data: canvas.toDataURL('image/jpeg', 0.65)
+              });
+            }
+          }
+
+          if (mode === 'split') {
+            state.pageCount = state.previews.length;
+            state.ranges = [{ from: 1, to: state.pageCount }];
+            state.selected = new Set(Array.from({ length: state.pageCount }, (_, i) => i + 1));
+            $('ranges').value = `1-${state.pageCount}`;
+            renderRangeRows();
+            renderRangePreview();
+            renderPages();
+          } else if (mode === 'merge') {
+            renderFiles();
+          } else if (mode === 'compress') {
+            renderCompressArea();
+          }
+          show('');
+          updateAreas();
+          setBusy(false);
+          return;
+        } catch (clientErr) {
+          console.warn('Client-side preview fallback to server:', clientErr);
+        }
+      }
+
+      // 2. Server-side fallback if client-side is unavailable
       try {
         const form = new FormData();
         form.append('mode', mode);
@@ -937,7 +1003,7 @@
         if (!r.ok) {
           let err = `Server returned error (${r.status})`;
           if (r.status === 413) {
-            err = 'File exceeds upload limit (413: Request Entity Too Large). Vercel limits uploads to 4.5 MB; use Render for large PDF files.';
+            err = 'File exceeds server upload limit (413: Request Entity Too Large).';
           } else {
             try {
               const d = await r.json();
@@ -1345,6 +1411,100 @@
       }
 
       setBusy(true);
+
+      // 1. Client-Side Split: Instant processing, 0 upload, works for 1GB+ files
+      if (mode === 'split' && window.PDFLib && state.files[0] && $('combine').checked) {
+        try {
+          const file = state.files[0];
+          let rangesList = [];
+          if (state.splitView === 'range') {
+            const norm = state.ranges.map(normalizeRange);
+            if (!norm.length) { setBusy(false); return show('Add at least one page range.', true); }
+            rangesList = norm;
+          } else {
+            let ranges;
+            try { ranges = parseRanges($('ranges').value); } catch (e) { setBusy(false); return show(e.message, true); }
+            if (!ranges.size) { setBusy(false); return show('Select at least one page.', true); }
+            const sorted = [...ranges].sort((a,b) => a-b);
+            rangesList = sorted.map(p => ({ from: p, to: p }));
+          }
+
+          show('Extracting pages in browser…');
+          const arrayBuffer = await file.arrayBuffer();
+          const srcDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+          const newDoc = await PDFLib.PDFDocument.create();
+
+          for (const r of rangesList) {
+            const pageIndices = [];
+            for (let p = r.from; p <= r.to; p++) {
+              if (p >= 1 && p <= srcDoc.getPageCount()) pageIndices.push(p - 1);
+            }
+            if (pageIndices.length) {
+              const copied = await newDoc.copyPages(srcDoc, pageIndices);
+              copied.forEach(page => newDoc.addPage(page));
+            }
+          }
+
+          const pdfBytes = await newDoc.save();
+          const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+          const url = URL.createObjectURL(blob), a = document.createElement('a');
+          a.href = url;
+          a.download = file.name.replace(/\.pdf$/i, '') + '-selected-pages.pdf';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          show('Done! Your selected pages have been downloaded.', false, true);
+          setBusy(false);
+          return;
+        } catch (splitErr) {
+          console.warn('Client split fallback to server:', splitErr);
+        }
+      }
+
+      // 2. Client-Side Compress for large files (>30MB) to prevent 413 proxy upload errors
+      if (mode === 'compress' && window.PDFLib && window.pdfjsLib && state.files[0] && state.files[0].size > 30 * 1024 * 1024) {
+        try {
+          show('Compressing large file in browser… please wait.');
+          const file = state.files[0];
+          const qualityPreset = $('quality').value;
+          const qualityMap = { small: 0.5, balanced: 0.65, best: 0.8, ultra: 0.9 };
+          const scaleMap = { small: 0.85, balanced: 1.0, best: 1.2, ultra: 1.4 };
+          const q = qualityMap[qualityPreset] || 0.65;
+          const s = scaleMap[qualityPreset] || 1.0;
+
+          const buffer = await file.arrayBuffer();
+          const srcPdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+          const outPdf = await PDFLib.PDFDocument.create();
+
+          for (let i = 1; i <= srcPdf.numPages; i++) {
+            show(`Compressing page ${i} of ${srcPdf.numPages}…`);
+            const page = await srcPdf.getPage(i);
+            const vp = page.getViewport({ scale: s });
+            const canvas = document.createElement('canvas');
+            canvas.width = vp.width;
+            canvas.height = vp.height;
+            const ctx = canvas.getContext('2d');
+            await page.render({ canvasContext: ctx, viewport: vp }).promise;
+            const imgData = canvas.toDataURL('image/jpeg', q);
+            const embedded = await outPdf.embedJpg(imgData);
+            const newPage = outPdf.addPage([vp.width, vp.height]);
+            newPage.drawImage(embedded, { x: 0, y: 0, width: vp.width, height: vp.height });
+          }
+
+          const outBytes = await outPdf.save();
+          const blob = new Blob([outBytes], { type: 'application/pdf' });
+          const url = URL.createObjectURL(blob), a = document.createElement('a');
+          a.href = url;
+          a.download = file.name.replace(/\.pdf$/i, '') + '-compressed.pdf';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          show('Done! Compressed PDF downloaded.', false, true);
+          setBusy(false);
+          return;
+        } catch (compErr) {
+          console.warn('Client compress fallback to server:', compErr);
+        }
+      }
+
       if (mode === 'compress') {
         show('Compressing pages… this may take a moment for large files.');
       } else {

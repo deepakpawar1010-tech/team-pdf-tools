@@ -15,8 +15,13 @@ from flask import Flask, jsonify, render_template, request, send_file, after_thi
 from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-MAX_UPLOAD_BYTES = 1200 * 1024 * 1024  # 1.2 GB
-app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+# Allow large streaming uploads without Flask rejecting them
+app.config["MAX_CONTENT_LENGTH"] = None
+
+
+@app.errorhandler(413)
+def handle_too_large(e):
+    return jsonify({"error": "File exceeds upload limit (413 Request Entity Too Large)."}), 413
 
 
 def valid_pdf(upload):
