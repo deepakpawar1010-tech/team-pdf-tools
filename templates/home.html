@@ -1,4 +1,420 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Team PDF Tools</title><style>
-:root{--ink:#172235;--muted:#687386;--red:#ef3e39;--bg:#f4f6fa}*{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Arial,sans-serif;color:var(--ink)}header{height:70px;background:#fff;border-bottom:1px solid #dce1e8;display:flex;align-items:center;padding:0 6vw;gap:35px}.brand{font-size:25px;font-weight:800}.brand b{color:var(--red)}nav{display:flex;gap:25px}nav a{color:var(--muted);font-weight:700;text-decoration:none}.hero{text-align:center;padding:74px 20px 38px}.hero h1{font-size:clamp(40px,6vw,70px);letter-spacing:-3px;margin:0}.hero em{color:var(--red);font-family:Georgia,serif;font-weight:400}.hero p{color:var(--muted);font-size:17px;line-height:1.5;max-width:660px;margin:20px auto}.grid{width:min(1100px,92vw);margin:0 auto 70px;display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.tile{min-height:230px;padding:28px;text-decoration:none;color:var(--ink);background:#fff;border:1px solid #d7dce5;border-radius:16px;transition:.15s}.tile:hover{box-shadow:0 16px 30px #18223715;transform:translateY(-3px)}.icon{display:grid;place-items:center;background:#ffe4de;color:var(--red);border-radius:10px;width:48px;height:48px;font-size:24px;font-weight:800}.tile h2{margin:20px 0 8px}.tile p{color:var(--muted);line-height:1.5}@media(max-width:650px){header{gap:15px}nav{gap:12px}nav a{font-size:12px}.grid{grid-template-columns:1fr}}
-</style></head><body><header><div class="brand"><b>PDF</b> Tools</div><nav><a href="/merge">Merge PDF</a><a href="/split">Split PDF</a><a href="/compress">Compress PDF</a></nav></header><main><section class="hero"><h1>Every PDF task,<br><em>in one place.</em></h1><p>Private PDF tools powered by your local Python server. Files are not stored after processing.</p></section><section class="grid"><a class="tile" href="/merge"><span class="icon">↔</span><h2>Merge PDF</h2><p>Combine PDFs in the order you choose.</p></a><a class="tile" href="/split"><span class="icon">↗</span><h2>Split PDF</h2><p>Extract selected page ranges.</p></a><a class="tile" href="/compress"><span class="icon">↓</span><h2>Compress PDF</h2><p>Reduce scanned PDF size with four quality levels.</p></a></section></main></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Team PDF Studio — Fast, Private PDF Tools</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --border: #e2e8f0;
+      --border-hover: #cbd5e1;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --primary: #e11d48;
+      --primary-hover: #be123c;
+      --primary-glow: rgba(225, 29, 72, 0.12);
+      --gradient: linear-gradient(135deg, #e11d48 0%, #f43f5e 50%, #fb7185 100%);
+      --radius-lg: 20px;
+      --radius-md: 12px;
+      --radius-sm: 8px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      height: 72px;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 max(24px, 5vw);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 20px;
+      color: var(--text);
+      text-decoration: none;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--gradient);
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: white;
+      box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);
+    }
+
+    .brand-icon svg { width: 20px; height: 20px; stroke-width: 2.2; }
+
+    nav { display: flex; gap: 8px; align-items: center; }
+    nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      transition: all 0.15s ease;
+    }
+    nav a:hover {
+      color: var(--text);
+      background: #f1f5f9;
+    }
+
+    main {
+      flex: 1;
+      width: 100%;
+      max-width: 1160px;
+      margin: 0 auto;
+      padding: 60px 24px 80px;
+    }
+
+    .hero {
+      text-align: center;
+      max-width: 780px;
+      margin: 0 auto 60px;
+    }
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: #fff1f2;
+      border: 1px solid #ffe4e6;
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      letter-spacing: 0.01em;
+    }
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--primary);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.6; }
+    }
+
+    .hero h1 {
+      font-size: clamp(38px, 6vw, 64px);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.035em;
+      color: var(--text);
+      margin-bottom: 20px;
+    }
+
+    .gradient-text {
+      background: var(--gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p {
+      font-size: clamp(16px, 2.2vw, 19px);
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 620px;
+      margin: 0 auto;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-bottom: 70px;
+    }
+
+    .tile {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px 28px;
+      text-decoration: none;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02), 0 8px 16px rgba(0, 0, 0, 0.02);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .tile::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--gradient);
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    .tile:hover {
+      transform: translateY(-4px);
+      border-color: var(--border-hover);
+      box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.08), 0 4px 8px -4px rgba(15, 23, 42, 0.03);
+    }
+
+    .tile:hover::before { opacity: 1; }
+
+    .tile-icon {
+      width: 54px;
+      height: 54px;
+      border-radius: var(--radius-md);
+      display: grid;
+      place-items: center;
+      margin-bottom: 22px;
+      transition: transform 0.2s ease;
+    }
+
+    .tile:hover .tile-icon { transform: scale(1.06); }
+
+    .icon-split { background: #fff1f2; color: #e11d48; }
+    .icon-merge { background: #eff6ff; color: #2563eb; }
+    .icon-compress { background: #f0fdf4; color: #16a34a; }
+
+    .tile-icon svg { width: 28px; height: 28px; stroke-width: 2.2; }
+
+    .tile h2 {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .tile p {
+      color: var(--text-muted);
+      font-size: 14.5px;
+      line-height: 1.55;
+      flex-grow: 1;
+      margin-bottom: 24px;
+    }
+
+    .tile-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 18px;
+      border-top: 1px solid #f1f5f9;
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .tile-footer span {
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: gap 0.2s ease;
+    }
+
+    .tile:hover .tile-footer span { gap: 10px; color: var(--primary); }
+
+    .tile-tag {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 9999px;
+      background: #f1f5f9;
+      color: #475569;
+    }
+
+    .features-band {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 36px 40px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+
+    .feature-item {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .feature-icon-bubble {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      display: grid;
+      place-items: center;
+      color: var(--primary);
+      flex-shrink: 0;
+    }
+
+    .feature-icon-bubble svg { width: 20px; height: 20px; }
+
+    .feature-text h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .feature-text p {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13.5px;
+      background: white;
+    }
+
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+      .features-band { grid-template-columns: 1fr; gap: 24px; padding: 28px; }
+      header { padding: 0 16px; }
+      nav a { padding: 6px 10px; font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      </div>
+      <span>Team <b>PDF</b></span>
+    </a>
+    <nav>
+      <a href="/split">Split PDF</a>
+      <a href="/merge">Merge PDF</a>
+      <a href="/compress">Compress PDF</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="badge-pill">
+        <span class="badge-dot"></span>
+        Zero Retention · 100% In-Memory Processing
+      </div>
+      <h1>Every PDF task,<br><span class="gradient-text">effortlessly solved.</span></h1>
+      <p>Lightning-fast PDF tools powered by Python and PyMuPDF. No subscription traps, no hidden limits, and your documents are never saved to disk.</p>
+    </section>
+
+    <section class="grid">
+      <a class="tile" href="/split">
+        <div class="tile-icon icon-split">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        </div>
+        <h2>Split PDF</h2>
+        <p>Extract exact page ranges or click pages visually to create a new PDF or download a ZIP archive.</p>
+        <div class="tile-footer">
+          <span class="tile-tag">Visual Grid</span>
+          <span>Open Tool &rarr;</span>
+        </div>
+      </a>
+
+      <a class="tile" href="/merge">
+        <div class="tile-icon icon-merge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="8" y="2" width="13" height="17" rx="2" stroke-linecap="round" stroke-linejoin="round"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v13a2 2 0 0 0 2 2h11"/></svg>
+        </div>
+        <h2>Merge PDF</h2>
+        <p>Combine multiple PDFs into a single unified document with seamless drag-and-drop page reordering.</p>
+        <div class="tile-footer">
+          <span class="tile-tag">Drag &amp; Reorder</span>
+          <span>Open Tool &rarr;</span>
+        </div>
+      </a>
+
+      <a class="tile" href="/compress">
+        <div class="tile-icon icon-compress">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 14l8-8 8 8M12 6v14"/></svg>
+        </div>
+        <h2>Compress PDF</h2>
+        <p>Shrink oversized scanned PDFs using four balanced presets with instant download.</p>
+        <div class="tile-footer">
+          <span class="tile-tag">4 Presets</span>
+          <span>Open Tool &rarr;</span>
+        </div>
+      </a>
+    </section>
+
+    <section class="features-band">
+      <div class="feature-item">
+        <div class="feature-icon-bubble">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        </div>
+        <div class="feature-text">
+          <h3>Native C-Engine Speed</h3>
+          <p>Powered by PyMuPDF and pypdf for blazing performance across multi-page documents.</p>
+        </div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-icon-bubble">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <div class="feature-text">
+          <h3>Bank-Grade Privacy</h3>
+          <p>Files are processed solely in temporary RAM and never written to permanent disk storage.</p>
+        </div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-icon-bubble">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="feature-text">
+          <h3>No Paywalls</h3>
+          <p>Full suite functionality without document watermarks, page caps, or recurring subscriptions.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Team PDF Tools &bull; Running live on Render &bull; Private &amp; Open Source
+  </footer>
+</body>
+</html>
