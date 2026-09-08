@@ -373,12 +373,28 @@
       text-align: center;
       box-shadow: 0 2px 6px rgba(0,0,0,0.03);
     }
-    .range-page img {
+    .range-thumb-wrap {
       width: 100%;
       height: 230px;
-      object-fit: contain;
       background: white;
       border-radius: var(--radius-sm);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .range-thumb-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      opacity: 0;
+      transition: opacity 0.2s ease-in-out;
+      position: relative;
+      z-index: 2;
+    }
+    .range-thumb-wrap img.loaded {
+      opacity: 1;
     }
     .range-page .page-number {
       font-size: 12.5px;
@@ -447,6 +463,7 @@
       position: relative;
       box-shadow: 0 1px 3px rgba(0,0,0,0.03);
       transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+      user-select: none;
     }
     .page-card:hover {
       transform: translateY(-2px);
@@ -457,12 +474,40 @@
       border-color: var(--primary);
       box-shadow: 0 0 0 2px var(--primary-glow);
     }
-    .page-card img {
+    .page-thumb-wrap {
       width: 100%;
       height: 180px;
-      object-fit: contain;
       background: #f8fafc;
       border-radius: var(--radius-sm);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .page-thumb-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      opacity: 0;
+      transition: opacity 0.2s ease-in-out;
+      position: relative;
+      z-index: 2;
+    }
+    .page-thumb-wrap img.loaded {
+      opacity: 1;
+    }
+    .skeleton-shimmer {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%);
+      background-size: 200% 100%;
+      animation: skeletonShimmer 1.5s infinite linear;
+      z-index: 1;
+    }
+    @keyframes skeletonShimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
     }
     .page-number {
       text-align: center;
@@ -900,7 +945,11 @@
     const filesInput = $('files');
     const state = {
       files: [],
-      previews: [],
+      previews: [],           // For merge mode or server fallback: [{ fileIndex, page, pages, name, data }]
+      previewCache: new Map(), // For split mode: pageNum -> dataURL
+      renderingPages: new Set(),
+      pdfDoc: null,
+      fileBytes: null,
       selected: new Set(),
       pageCount: 0,
       dragIndex: null,
@@ -942,8 +991,143 @@
       $('compressArea').classList.toggle('hidden', mode !== 'compress' || !has);
     }
 
+    // --- On-Demand Thumbnail Pipeline & Lazy Renderer ---
+    const renderQueue = [];
+    let activeRenders = 0;
+    const MAX_CONCURRENT_RENDERS = 2;
+    let pageObserver = null;
+
+    function applyThumbnail(pageNum, dataUrl) {
+      // Update in visual pages grid
+      const pageImgs = document.querySelectorAll(`img[data-page="${pageNum}"]`);
+      pageImgs.forEach(img => {
+        if (img.src !== dataUrl) img.src = dataUrl;
+        img.classList.add('loaded');
+        const shimmer = img.parentElement.querySelector('.skeleton-shimmer');
+        if (shimmer) shimmer.remove();
+      });
+
+      // Update in range preview boxes
+      const rangeImgs = document.querySelectorAll(`img[data-range-page="${pageNum}"]`);
+      rangeImgs.forEach(img => {
+        if (img.src !== dataUrl) img.src = dataUrl;
+        img.classList.add('loaded');
+        const shimmer = img.parentElement.querySelector('.skeleton-shimmer');
+        if (shimmer) shimmer.remove();
+      });
+    }
+
+    async function renderPageThumbnail(pageNum) {
+      if (!state.pdfDoc || pageNum < 1 || pageNum > state.pageCount) return;
+      if (state.previewCache.has(pageNum)) {
+        applyThumbnail(pageNum, state.previewCache.get(pageNum));
+        return state.previewCache.get(pageNum);
+      }
+      if (state.renderingPages.has(pageNum)) return;
+
+      state.renderingPages.add(pageNum);
+      try {
+        const page = await state.pdfDoc.getPage(pageNum);
+        const vp = page.getViewport({ scale: 1.0 });
+        const longest = Math.max(vp.width, vp.height) || 1;
+        // 200px longest edge provides a clean, crisp preview while rendering in ~15ms and keeping payload <15KB
+        const scale = Math.min(1.0, 200 / longest);
+        const scaledVp = page.getViewport({ scale });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(scaledVp.width);
+        canvas.height = Math.round(scaledVp.height);
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport: scaledVp }).promise;
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.68);
+        state.previewCache.set(pageNum, dataUrl);
+        applyThumbnail(pageNum, dataUrl);
+        return dataUrl;
+      } catch (err) {
+        console.warn(`Error rendering page ${pageNum}:`, err);
+      } finally {
+        state.renderingPages.delete(pageNum);
+      }
+    }
+
+    function processRenderQueue() {
+      if (activeRenders >= MAX_CONCURRENT_RENDERS || renderQueue.length === 0) return;
+
+      const pageNum = renderQueue.shift();
+      activeRenders++;
+
+      renderPageThumbnail(pageNum).finally(() => {
+        activeRenders--;
+        processRenderQueue();
+      });
+    }
+
+    function requestPageRender(pageNum, highPriority = false) {
+      if (state.previewCache.has(pageNum)) {
+        applyThumbnail(pageNum, state.previewCache.get(pageNum));
+        return;
+      }
+      if (renderQueue.includes(pageNum) || state.renderingPages.has(pageNum)) {
+        return;
+      }
+      if (highPriority) {
+        renderQueue.unshift(pageNum);
+      } else {
+        renderQueue.push(pageNum);
+      }
+      processRenderQueue();
+    }
+
+    function setupIntersectionObserver() {
+      if (pageObserver) {
+        pageObserver.disconnect();
+      }
+      if (!('IntersectionObserver' in window)) {
+        for (let i = 1; i <= Math.min(24, state.pageCount); i++) {
+          requestPageRender(i, false);
+        }
+        return;
+      }
+
+      pageObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const pageNum = Number(entry.target.dataset.page);
+            if (pageNum) {
+              requestPageRender(pageNum, false);
+              if (state.previewCache.has(pageNum)) {
+                pageObserver.unobserve(entry.target);
+              }
+            }
+          }
+        });
+      }, {
+        root: null,
+        rootMargin: '300px 0px', // Pre-fetch 300px before scrolling into view
+        threshold: 0.01
+      });
+
+      const cards = document.querySelectorAll('.page-card[data-page]');
+      cards.forEach(card => {
+        const p = Number(card.dataset.page);
+        if (!state.previewCache.has(p)) {
+          pageObserver.observe(card);
+        }
+      });
+    }
+
     async function loadPreviews() {
       setBusy(true);
+
+      // Clean up previous cache and observer
+      state.previewCache.clear();
+      state.renderingPages.clear();
+      renderQueue.length = 0;
+      if (pageObserver) {
+        pageObserver.disconnect();
+        pageObserver = null;
+      }
 
       // In Compress Mode: Instant 0.05s load without rendering thumbnails
       if (mode === 'compress' && state.files.length > 0) {
@@ -952,7 +1136,10 @@
           show('Loading document…');
           const buffer = await file.arrayBuffer();
           state.fileBytes = buffer;
-          if (window.PDFLib) {
+          if (window.pdfjsLib) {
+            const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
+            state.pageCount = doc.numPages;
+          } else if (window.PDFLib) {
             const pdf = await PDFLib.PDFDocument.load(buffer, { ignoreEncryption: false });
             state.pageCount = pdf.getPageCount();
           }
@@ -966,66 +1153,76 @@
         }
       }
 
-      show('Rendering previews…');
-
-      // 1. Ultra-fast Client-Side Preview via PDF.js for Split/Merge
-      if (window.pdfjsLib && state.files.length > 0) {
+      // In Split Mode: Instant on-demand lazy loading engine (< 1s load)
+      if (mode === 'split' && window.pdfjsLib && state.files.length > 0) {
         try {
-          state.previews = [];
-          const uploads = (mode === 'merge') ? state.files : [state.files[0]];
-          for (let fileIndex = 0; fileIndex < uploads.length; fileIndex++) {
-            const file = uploads[fileIndex];
-            const buffer = await file.arrayBuffer();
-            const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
-            const total = doc.numPages;
-            const pagesToRender = (mode === 'merge') ? [1] : Array.from({ length: total }, (_, i) => i + 1);
+          const file = state.files[0];
+          show('Reading document…');
+          const buffer = await file.arrayBuffer();
+          state.fileBytes = buffer;
+          const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
+          state.pdfDoc = doc;
+          state.pageCount = doc.numPages;
+          state.ranges = [{ from: 1, to: state.pageCount }];
+          state.selected = new Set(Array.from({ length: state.pageCount }, (_, i) => i + 1));
+          $('ranges').value = `1-${state.pageCount}`;
 
-            for (const pageNum of pagesToRender) {
-              const page = await doc.getPage(pageNum);
-              const vp = page.getViewport({ scale: 1.0 });
-              const longest = Math.max(vp.width, vp.height) || 1;
-              const scale = Math.min(1.0, 240 / longest);
-              const scaledVp = page.getViewport({ scale });
+          renderRangeRows();
+          renderRangePreview(); // Only renders boundary pages (e.g. 1 and 96)
+          renderPages();        // Renders all skeleton cards in 0.01s & triggers observer
 
-              const canvas = document.createElement('canvas');
-              canvas.width = scaledVp.width;
-              canvas.height = scaledVp.height;
-              const ctx = canvas.getContext('2d');
-              await page.render({ canvasContext: ctx, viewport: scaledVp }).promise;
-
-              state.previews.push({
-                fileIndex: fileIndex,
-                page: pageNum,
-                pages: total,
-                name: file.name,
-                data: canvas.toDataURL('image/jpeg', 0.65)
-              });
-            }
-          }
-
-          if (mode === 'split') {
-            state.pageCount = state.previews.length;
-            state.ranges = [{ from: 1, to: state.pageCount }];
-            state.selected = new Set(Array.from({ length: state.pageCount }, (_, i) => i + 1));
-            $('ranges').value = `1-${state.pageCount}`;
-            renderRangeRows();
-            renderRangePreview();
-            renderPages();
-          } else if (mode === 'merge') {
-            renderFiles();
-          } else if (mode === 'compress') {
-            renderCompressArea();
-          }
           show('');
           updateAreas();
           setBusy(false);
           return;
         } catch (clientErr) {
-          console.warn('Client-side preview fallback to server:', clientErr);
+          console.warn('Split fast load fallback:', clientErr);
         }
       }
 
-      // 2. Server-side fallback if client-side is unavailable
+      // In Merge Mode: Fast 1-page-per-file preview
+      if (mode === 'merge' && window.pdfjsLib && state.files.length > 0) {
+        try {
+          state.previews = [];
+          show('Reading documents…');
+          for (let fileIndex = 0; fileIndex < state.files.length; fileIndex++) {
+            const file = state.files[fileIndex];
+            const buffer = await file.arrayBuffer();
+            const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+            const total = doc.numPages;
+
+            const page = await doc.getPage(1);
+            const vp = page.getViewport({ scale: 1.0 });
+            const longest = Math.max(vp.width, vp.height) || 1;
+            const scale = Math.min(1.0, 200 / longest);
+            const scaledVp = page.getViewport({ scale });
+
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(scaledVp.width);
+            canvas.height = Math.round(scaledVp.height);
+            const ctx = canvas.getContext('2d');
+            await page.render({ canvasContext: ctx, viewport: scaledVp }).promise;
+
+            state.previews.push({
+              fileIndex: fileIndex,
+              page: 1,
+              pages: total,
+              name: file.name,
+              data: canvas.toDataURL('image/jpeg', 0.68)
+            });
+          }
+          renderFiles();
+          show('');
+          updateAreas();
+          setBusy(false);
+          return;
+        } catch (clientErr) {
+          console.warn('Merge preview fallback:', clientErr);
+        }
+      }
+
+      // Fallback: Server-side preview if client libraries fail
+      show('Rendering previews…');
       try {
         const form = new FormData();
         form.append('mode', mode);
@@ -1049,12 +1246,12 @@
         }
         const data = await r.json();
         state.previews = data.previews || [];
-
         if (mode === 'split') {
           state.pageCount = state.previews.length;
           state.ranges = [{ from: 1, to: state.pageCount }];
           state.selected = new Set(Array.from({ length: state.pageCount }, (_, i) => i + 1));
           $('ranges').value = `1-${state.pageCount}`;
+          state.previews.forEach(p => state.previewCache.set(p.page, p.data));
           renderRangeRows();
           renderRangePreview();
           renderPages();
@@ -1073,6 +1270,9 @@
     }
 
     function previewForPage(n) {
+      if (state.previewCache && state.previewCache.has(n)) {
+        return { page: n, data: state.previewCache.get(n) };
+      }
       return state.previews.find(p => p.page === n);
     }
 
@@ -1082,24 +1282,21 @@
       if ($('compressFileName')) $('compressFileName').textContent = file.name;
       if ($('compressFileMeta')) $('compressFileMeta').textContent = `${state.pageCount || '?'} pages • ${bytes(file.size)}`;
 
+      const cleanup = () => {
+        state.files = [];
+        state.fileBytes = null;
+        state.previews = [];
+        state.previewCache.clear();
+        state.renderingPages.clear();
+        renderQueue.length = 0;
+        if (pageObserver) { pageObserver.disconnect(); pageObserver = null; }
+        updateAreas();
+      };
+
       const removeBtn = $('removeCompressFile');
-      if (removeBtn) {
-        removeBtn.onclick = () => {
-          state.files = [];
-          state.fileBytes = null;
-          state.previews = [];
-          updateAreas();
-        };
-      }
+      if (removeBtn) removeBtn.onclick = cleanup;
       const clearBtn = $('clearCompressFile');
-      if (clearBtn) {
-        clearBtn.onclick = () => {
-          state.files = [];
-          state.fileBytes = null;
-          state.previews = [];
-          updateAreas();
-        };
-      }
+      if (clearBtn) clearBtn.onclick = cleanup;
     }
 
     function renderFiles() {
@@ -1124,17 +1321,24 @@
     function renderPages() {
       const grid = $('pageGrid');
       if (!grid) return;
-      grid.innerHTML = state.previews.map(p => {
-        const sel = state.selected.has(p.page);
-        return `
-          <article class="page-card ${sel ? 'selected' : ''}" data-page="${p.page}">
+      let html = '';
+      for (let p = 1; p <= state.pageCount; p++) {
+        const sel = state.selected.has(p);
+        const cached = state.previewCache.get(p);
+        html += `
+          <article class="page-card ${sel ? 'selected' : ''}" data-page="${p}">
             <div class="checkmark">&#10003;</div>
-            <img src="${p.data}" alt="Page ${p.page}">
-            <div class="page-number">Page ${p.page}</div>
+            <div class="page-thumb-wrap">
+              ${cached ? '' : '<div class="skeleton-shimmer"></div>'}
+              <img data-page="${p}" class="${cached ? 'loaded' : ''}" ${cached ? `src="${cached}"` : ''} alt="Page ${p}">
+            </div>
+            <div class="page-number">Page ${p}</div>
           </article>
         `;
-      }).join('');
+      }
+      grid.innerHTML = html;
       $('selectedCount').textContent = state.selected.size;
+      setupIntersectionObserver();
     }
 
     function pagesToRanges(set) {
@@ -1205,15 +1409,44 @@
         return;
       }
       wrap.innerHTML = state.ranges.map((raw, i) => {
-        const r = normalizeRange(raw), first = previewForPage(r.from), last = previewForPage(r.to);
-        let content = '';
-        if (first) content += `<div class="range-page"><img src="${first.data}" alt="Page ${r.from}"><div class="page-number">Page ${r.from}</div></div>`;
-        if (r.to - r.from > 1) content += '<div class="range-ellipsis">&bull;&bull;&bull;</div>';
-        if (last && r.to !== r.from) content += `<div class="range-page"><img src="${last.data}" alt="Page ${r.to}"><div class="page-number">Page ${r.to}</div></div>`;
+        const r = normalizeRange(raw);
+        const firstCached = state.previewCache.get(r.from);
+        const lastCached = state.previewCache.get(r.to);
+
+        // Immediately request boundary page thumbnails with high priority
+        if (!firstCached) requestPageRender(r.from, true);
+        if (r.to !== r.from && !lastCached) requestPageRender(r.to, true);
+
+        let content = `
+          <div class="range-page">
+            <div class="range-thumb-wrap">
+              ${firstCached ? '' : '<div class="skeleton-shimmer"></div>'}
+              <img data-range-page="${r.from}" class="${firstCached ? 'loaded' : ''}" ${firstCached ? `src="${firstCached}"` : ''} alt="Page ${r.from}">
+            </div>
+            <div class="page-number">Page ${r.from}</div>
+          </div>
+        `;
+
+        if (r.to - r.from > 1) {
+          content += '<div class="range-ellipsis">&bull;&bull;&bull;</div>';
+        }
+
+        if (r.to !== r.from) {
+          content += `
+            <div class="range-page">
+              <div class="range-thumb-wrap">
+                ${lastCached ? '' : '<div class="skeleton-shimmer"></div>'}
+                <img data-range-page="${r.to}" class="${lastCached ? 'loaded' : ''}" ${lastCached ? `src="${lastCached}"` : ''} alt="Page ${r.to}">
+              </div>
+              <div class="page-number">Page ${r.to}</div>
+            </div>
+          `;
+        }
+
         return `
           <section class="range-box">
             <div class="range-title">Range ${i + 1}</div>
-            <div class="range-pages">${content || '<div class="hint">No preview available.</div>'}</div>
+            <div class="range-pages">${content}</div>
           </section>
         `;
       }).join('');
@@ -1222,7 +1455,7 @@
         const x = normalizeRange(r);
         return n + x.to - x.from + 1;
       }, 0);
-      $('rangeSummary').textContent = `${state.ranges.length} range${state.ranges.length === 1 ? '' : 's'} &bull; ${totalSelected} pages selected`;
+      $('rangeSummary').textContent = `${state.ranges.length} range${state.ranges.length === 1 ? '' : 's'} • ${totalSelected} pages selected`;
     }
 
     function switchSplitView(view) {
@@ -1375,27 +1608,39 @@
         const card = e.target.closest('.page-card');
         if (!card) return;
         const p = Number(card.dataset.page);
-        state.selected.has(p) ? state.selected.delete(p) : state.selected.add(p);
+        if (state.selected.has(p)) {
+          state.selected.delete(p);
+          card.classList.remove('selected');
+        } else {
+          state.selected.add(p);
+          card.classList.add('selected');
+        }
         $('ranges').value = pagesToRanges(state.selected);
-        renderPages();
+        $('selectedCount').textContent = state.selected.size;
       });
 
       $('selectAll').onclick = () => {
         state.selected = new Set(Array.from({ length: state.pageCount }, (_, i) => i + 1));
         $('ranges').value = pagesToRanges(state.selected);
-        renderPages();
+        $('selectedCount').textContent = state.selected.size;
+        document.querySelectorAll('.page-card').forEach(c => c.classList.add('selected'));
       };
 
       $('clearSelection').onclick = () => {
         state.selected.clear();
         $('ranges').value = '';
-        renderPages();
+        $('selectedCount').textContent = 0;
+        document.querySelectorAll('.page-card').forEach(c => c.classList.remove('selected'));
       };
 
       $('ranges').addEventListener('input', () => {
         try {
           state.selected = parseRanges($('ranges').value);
-          renderPages();
+          $('selectedCount').textContent = state.selected.size;
+          document.querySelectorAll('.page-card').forEach(c => {
+            const p = Number(c.dataset.page);
+            c.classList.toggle('selected', state.selected.has(p));
+          });
           show('');
         } catch (e) {
           show(e.message, true);
@@ -1408,7 +1653,8 @@
         state.extractAll = true;
         state.selected = new Set(Array.from({ length: state.pageCount }, (_, i) => i + 1));
         $('ranges').value = `1-${state.pageCount}`;
-        renderPages();
+        $('selectedCount').textContent = state.selected.size;
+        document.querySelectorAll('.page-card').forEach(c => c.classList.add('selected'));
       };
 
       $('selectMode').onclick = () => {
@@ -1473,7 +1719,7 @@
           }
 
           show('Extracting pages in browser…');
-          const arrayBuffer = await file.arrayBuffer();
+          const arrayBuffer = state.fileBytes || await file.arrayBuffer();
           const srcDoc = await PDFLib.PDFDocument.load(arrayBuffer);
           const newDoc = await PDFLib.PDFDocument.create();
 
