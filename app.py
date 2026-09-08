@@ -14,6 +14,11 @@ import pymupdf as fitz
 from flask import Flask, jsonify, render_template, request, send_file, after_this_request
 from pypdf import PdfReader, PdfWriter
 
+try:
+    from pdf2docx import Converter
+except ImportError:
+    Converter = None
+
 app = Flask(__name__)
 # Allow large streaming uploads without Flask rejecting them
 app.config["MAX_CONTENT_LENGTH"] = None
@@ -35,18 +40,18 @@ def output_name(filename: str, suffix: str) -> str:
     return f"{safe_stem}-{suffix}.pdf"
 
 
+def output_docx_name(filename: str, suffix: str = "converted") -> str:
+    stem = Path(filename).stem
+    safe_stem = re.sub(r"[^\w.-]+", "-", stem).strip("-") or "document"
+    return f"{safe_stem}-{suffix}.docx"
+
+
 @app.get("/")
 def home():
     return render_template("home.html")
 
 
 COMING_SOON = {
-    "pdf-to-word": {
-        "title": "PDF to Word",
-        "description": "Convert PDF documents into editable Microsoft Word (.docx) files while preserving original typography and formatting.",
-        "badge": "DOCX Conversion",
-        "icon": "word"
-    },
     "word-to-pdf": {
         "title": "Word to PDF",
         "description": "Convert Microsoft Word documents directly into high-fidelity, standardized PDF documents.",
@@ -70,7 +75,7 @@ COMING_SOON = {
 
 @app.get("/<tool>")
 def tool_page(tool: str):
-    if tool in {"merge", "split", "compress"}:
+    if tool in {"merge", "split", "compress", "pdf-to-word"}:
         return render_template("tool.html", tool=tool)
     if tool in COMING_SOON:
         return render_template("coming_soon.html", tool=tool, info=COMING_SOON[tool])
@@ -263,6 +268,93 @@ def compress_pdf():
             as_attachment=True,
             download_name=output_name(upload.filename, "compressed"),
             mimetype="application/pdf"
+        )
+    except Exception as error:
+        if input_path and os.path.exists(input_path):
+            try:
+                os.remove(input_path)
+            except Exception:
+                pass
+        if output_path and os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except Exception:
+                pass
+        return jsonify({"error": str(error)}), 400
+
+
+@app.post("/api/pdf-to-word")
+def pdf_to_word():
+    input_path = None
+    output_path = None
+    try:
+        upload = request.files.get("file")
+        valid_pdf(upload)
+
+        if Converter is None:
+            return jsonify({"error": "pdf2docx is not installed on the server."}), 500
+
+        # Stream upload to disk temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
+            upload.save(in_tmp.name)
+            input_path = in_tmp.name
+
+        # Create output .docx temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as out_tmp:
+            output_path = out_tmp.name
+
+        # Parse optional page range
+        pages_param = request.form.get("pages", "").strip()
+        pages_list = None
+        if pages_param:
+            try:
+                doc = fitz.open(input_path)
+                total_pages = doc.page_count
+                doc.close()
+                indices = set()
+                for part in pages_param.split(","):
+                    p = part.strip()
+                    if "-" in p:
+                        s, e = p.split("-", 1)
+                        s, e = int(s.strip()), int(e.strip())
+                        if s > e:
+                            s, e = e, s
+                        for i in range(max(1, s), min(total_pages, e) + 1):
+                            indices.add(i - 1)
+                    elif p.isdigit():
+                        val = int(p)
+                        if 1 <= val <= total_pages:
+                            indices.add(val - 1)
+                if indices:
+                    pages_list = sorted(list(indices))
+            except Exception as parse_err:
+                print("Page range parse warning:", parse_err)
+
+        cv = Converter(input_path)
+        if pages_list:
+            cv.convert(output_path, pages=pages_list)
+        else:
+            cv.convert(output_path)
+        cv.close()
+        del cv
+        gc.collect()
+
+        @after_this_request
+        def cleanup(response):
+            try:
+                if input_path and os.path.exists(input_path):
+                    os.remove(input_path)
+                if output_path and os.path.exists(output_path):
+                    os.remove(output_path)
+            except Exception:
+                pass
+            return response
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=output_docx_name(upload.filename, "converted"),
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
     except Exception as error:
         if input_path and os.path.exists(input_path):
