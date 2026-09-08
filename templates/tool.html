@@ -813,15 +813,26 @@
       </div>
 
       <div id="compressArea" class="hidden">
-        <div class="selection-bar">
-          <strong id="compressFileName">Document</strong>
-          <span class="tile-tag" id="compressMetaBadge" style="margin-left: 8px;">0 pages</span>
+        <div style="margin-bottom: 24px; display: flex; align-items: flex-start; justify-content: space-between;">
+          <div>
+            <span style="font-size: 11px; font-weight: 800; color: var(--primary); text-transform: uppercase; letter-spacing: 1px;">Compress PDF</span>
+            <h2 style="font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px;">Reduce your PDF file size</h2>
+          </div>
+          <button id="clearCompressFile" class="small-btn" type="button" style="color: var(--primary);">Clear file</button>
         </div>
-        <div class="section-title">
-          <h2>Document Pages (<span id="compressPageCount">0</span>)</h2>
-          <span class="hint">All pages will be processed &amp; compressed</span>
+
+        <div id="compressFileCard" style="background: white; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px 22px; display: flex; align-items: center; gap: 16px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+          <div style="width: 44px; height: 44px; background: #fff1f2; color: var(--primary); border-radius: 10px; display: grid; place-items: center; font-weight: 900; font-size: 14px; flex-shrink: 0;">PDF</div>
+          <div style="flex: 1; min-width: 0;">
+            <div id="compressFileName" style="font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);"></div>
+            <div id="compressFileMeta" style="font-size: 13px; color: var(--text-muted); margin-top: 4px;"></div>
+          </div>
+          <button id="removeCompressFile" class="icon-btn" title="Remove file" type="button" style="border: 0; background: none; font-size: 22px; color: var(--text-muted); cursor: pointer; display: grid; place-items: center;">&times;</button>
         </div>
-        <div id="compressPageGrid" class="split-pages"></div>
+
+        <p class="hint" style="line-height: 1.6; margin-bottom: 20px;">
+          Choose a balance between file size and page clarity. This creates an image-based PDF, which is especially effective for scanned documents.
+        </p>
       </div>
     </main>
 
@@ -932,10 +943,32 @@
     }
 
     async function loadPreviews() {
-      show('Rendering previews…');
       setBusy(true);
 
-      // 1. Ultra-fast Client-Side Preview via PDF.js (works for 1GB+ files without network upload)
+      // In Compress Mode: Instant 0.05s load without rendering thumbnails
+      if (mode === 'compress' && state.files.length > 0) {
+        try {
+          const file = state.files[0];
+          show('Loading document…');
+          const buffer = await file.arrayBuffer();
+          state.fileBytes = buffer;
+          if (window.PDFLib) {
+            const pdf = await PDFLib.PDFDocument.load(buffer, { ignoreEncryption: false });
+            state.pageCount = pdf.getPageCount();
+          }
+          renderCompressArea();
+          show('');
+          updateAreas();
+          setBusy(false);
+          return;
+        } catch (e) {
+          console.warn('Compress fast load fallback:', e);
+        }
+      }
+
+      show('Rendering previews…');
+
+      // 1. Ultra-fast Client-Side Preview via PDF.js for Split/Merge
       if (window.pdfjsLib && state.files.length > 0) {
         try {
           state.previews = [];
@@ -1044,19 +1077,29 @@
     }
 
     function renderCompressArea() {
-      const grid = $('compressPageGrid');
-      if (!grid || !state.files.length) return;
+      if (!state.files.length) return;
       const file = state.files[0];
       if ($('compressFileName')) $('compressFileName').textContent = file.name;
-      if ($('compressMetaBadge')) $('compressMetaBadge').textContent = `${state.previews.length} pages • ${bytes(file.size)}`;
-      if ($('compressPageCount')) $('compressPageCount').textContent = state.previews.length;
+      if ($('compressFileMeta')) $('compressFileMeta').textContent = `${state.pageCount || '?'} pages • ${bytes(file.size)}`;
 
-      grid.innerHTML = state.previews.map(p => `
-        <article class="page-card" style="cursor: default;" data-page="${p.page}">
-          <img src="${p.data}" alt="Page ${p.page}">
-          <div class="page-number">Page ${p.page}</div>
-        </article>
-      `).join('');
+      const removeBtn = $('removeCompressFile');
+      if (removeBtn) {
+        removeBtn.onclick = () => {
+          state.files = [];
+          state.fileBytes = null;
+          state.previews = [];
+          updateAreas();
+        };
+      }
+      const clearBtn = $('clearCompressFile');
+      if (clearBtn) {
+        clearBtn.onclick = () => {
+          state.files = [];
+          state.fileBytes = null;
+          state.previews = [];
+          updateAreas();
+        };
+      }
     }
 
     function renderFiles() {
@@ -1460,44 +1503,44 @@
         }
       }
 
-      // 2. Client-Side Compress for large files (>30MB) to prevent 413 proxy upload errors
-      if (mode === 'compress' && window.PDFLib && window.pdfjsLib && state.files[0] && state.files[0].size > 30 * 1024 * 1024) {
+      // 2. Client-Side Compress: Matches your Netlify project, fast & zero network upload
+      if (mode === 'compress' && window.PDFLib && window.pdfjsLib && state.files[0]) {
         try {
-          show('Compressing large file in browser… please wait.');
           const file = state.files[0];
+          show('Preparing compression in browser…');
           const qualityPreset = $('quality').value;
-          const qualityMap = { small: 0.5, balanced: 0.65, best: 0.8, ultra: 0.9 };
-          const scaleMap = { small: 0.85, balanced: 1.0, best: 1.2, ultra: 1.4 };
-          const q = qualityMap[qualityPreset] || 0.65;
-          const s = scaleMap[qualityPreset] || 1.0;
+          const qualityMap = { small: 0.55, balanced: 0.72, best: 0.88, ultra: 0.96 };
+          const quality = qualityMap[qualityPreset] || parseFloat(qualityPreset) || 0.72;
+          const renderScale = quality < 0.6 ? 0.85 : quality > 0.94 ? 1.55 : quality > 0.8 ? 1.25 : 1;
 
-          const buffer = await file.arrayBuffer();
-          const srcPdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+          const buffer = state.fileBytes || await file.arrayBuffer();
+          const srcPdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
           const outPdf = await PDFLib.PDFDocument.create();
 
           for (let i = 1; i <= srcPdf.numPages; i++) {
             show(`Compressing page ${i} of ${srcPdf.numPages}…`);
             const page = await srcPdf.getPage(i);
-            const vp = page.getViewport({ scale: s });
+            const original = page.getViewport({ scale: 1 });
+            const rendered = page.getViewport({ scale: renderScale });
             const canvas = document.createElement('canvas');
-            canvas.width = vp.width;
-            canvas.height = vp.height;
-            const ctx = canvas.getContext('2d');
-            await page.render({ canvasContext: ctx, viewport: vp }).promise;
-            const imgData = canvas.toDataURL('image/jpeg', q);
+            canvas.width = Math.round(rendered.width);
+            canvas.height = Math.round(rendered.height);
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport: rendered }).promise;
+            const imgData = canvas.toDataURL('image/jpeg', quality);
             const embedded = await outPdf.embedJpg(imgData);
-            const newPage = outPdf.addPage([vp.width, vp.height]);
-            newPage.drawImage(embedded, { x: 0, y: 0, width: vp.width, height: vp.height });
+            const newPage = outPdf.addPage([original.width, original.height]);
+            newPage.drawImage(embedded, { x: 0, y: 0, width: original.width, height: original.height });
           }
 
-          const outBytes = await outPdf.save();
+          show('Finalizing compressed PDF…');
+          const outBytes = await outPdf.save({ useObjectStreams: true });
           const blob = new Blob([outBytes], { type: 'application/pdf' });
           const url = URL.createObjectURL(blob), a = document.createElement('a');
           a.href = url;
           a.download = file.name.replace(/\.pdf$/i, '') + '-compressed.pdf';
           a.click();
           setTimeout(() => URL.revokeObjectURL(url), 1000);
-          show('Done! Compressed PDF downloaded.', false, true);
+          show('Done! Your compressed PDF has been downloaded.', false, true);
           setBusy(false);
           return;
         } catch (compErr) {
