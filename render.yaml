@@ -1,10 +1,6 @@
 services:
   - type: web
     name: team-pdf-tools
-    env: python
+    env: docker
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 2 --threads 4 --timeout 300
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.9
+    dockerfilePath: Dockerfile

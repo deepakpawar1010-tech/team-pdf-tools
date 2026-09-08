@@ -4,15 +4,24 @@ from __future__ import annotations
 import io
 import os
 import re
+import sys
+import uuid
+import shutil
+import logging
 import zipfile
 import base64
 import gc
 import tempfile
+import threading
+import subprocess
 from pathlib import Path
 
 import pymupdf as fitz
 from flask import Flask, jsonify, render_template, request, send_file, after_this_request
 from pypdf import PdfReader, PdfWriter
+
+logger = logging.getLogger(__name__)
+word_lock = threading.Lock()
 
 try:
     from pdf2docx import Converter
@@ -369,6 +378,147 @@ def pdf_to_word():
         return jsonify({"error": str(error)}), 400
 
 
+def find_libreoffice_bin():
+    candidates = [
+        "libreoffice",
+        "soffice",
+        "/usr/bin/libreoffice",
+        "/usr/bin/soffice",
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"
+    ]
+    for cmd in candidates:
+        if shutil.which(cmd) or (os.path.exists(cmd) and os.path.isfile(cmd)):
+            return cmd
+    return None
+
+
+def convert_docx_with_word_com(input_docx: str, output_pdf: str) -> bool:
+    """Uses native Microsoft Word background COM automation on Windows (File -> Save As -> PDF)."""
+    if sys.platform != "win32":
+        return False
+
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError:
+        return False
+
+    with word_lock:
+        pythoncom.CoInitialize()
+        word = None
+        doc = None
+        try:
+            word = win32com.client.DispatchEx("Word.Application")
+            word.Visible = False
+            word.DisplayAlerts = False
+            abs_in = str(Path(input_docx).resolve())
+            abs_out = str(Path(output_pdf).resolve())
+            doc = word.Documents.Open(abs_in, ReadOnly=True)
+            # wdFormatPDF = 17
+            doc.SaveAs2(abs_out, FileFormat=17)
+            doc.Close(False)
+            doc = None
+            word.Quit()
+            word = None
+            return True
+        except Exception as err:
+            logger.warning("Word COM automation error: %s", err)
+            raise
+        finally:
+            if doc:
+                try:
+                    doc.Close(False)
+                except Exception:
+                    pass
+            if word:
+                try:
+                    word.Quit()
+                except Exception:
+                    pass
+            pythoncom.CoUninitialize()
+
+
+def convert_docx_with_libreoffice(input_docx: str, output_pdf: str) -> bool:
+    """Uses headless LibreOffice export for Linux/Docker/Render servers."""
+    lo_bin = find_libreoffice_bin()
+    if not lo_bin:
+        return False
+
+    out_dir = Path(output_pdf).parent.resolve()
+    unique_id = uuid.uuid4().hex
+    profile_dir = Path(tempfile.gettempdir()) / f"lo_profile_{unique_id}"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    profile_uri = profile_dir.as_uri()
+
+    cmd = [
+        lo_bin,
+        f"-env:UserInstallation={profile_uri}",
+        "--headless",
+        "--invisible",
+        "--nodefault",
+        "--nofirststartwizard",
+        "--convert-to", "pdf:writer_pdf_Export",
+        "--outdir", str(out_dir),
+        str(Path(input_docx).resolve())
+    ]
+
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        stem = Path(input_docx).stem
+        expected_pdf = out_dir / f"{stem}.pdf"
+        if expected_pdf.exists() and expected_pdf.stat().st_size > 0:
+            if str(expected_pdf.resolve()) != str(Path(output_pdf).resolve()):
+                shutil.move(str(expected_pdf), str(output_pdf))
+            return True
+        logger.warning("LibreOffice returned code %s, stderr: %s", res.returncode, res.stderr)
+        return False
+    except Exception as err:
+        logger.warning("LibreOffice conversion failed: %s", err)
+        return False
+    finally:
+        shutil.rmtree(profile_dir, ignore_errors=True)
+
+
+def convert_docx_to_pdf_high_fidelity(input_docx: str, output_pdf: str):
+    """
+    Multi-tier conversion engine:
+    1. Microsoft Word COM ('Save As PDF') on Windows if MS Office is installed
+    2. LibreOffice headless on Linux / Docker / Render / Windows
+    3. PyMuPDF fallback
+    """
+    # 1. Try Microsoft Word native Save As PDF (100% fidelity)
+    if sys.platform == "win32":
+        try:
+            if convert_docx_with_word_com(input_docx, output_pdf):
+                if os.path.exists(output_pdf) and os.path.getsize(output_pdf) > 0:
+                    return
+        except Exception as e:
+            logger.warning("Word COM failed, trying fallback: %s", e)
+
+    # 2. Try LibreOffice headless
+    try:
+        if convert_docx_with_libreoffice(input_docx, output_pdf):
+            if os.path.exists(output_pdf) and os.path.getsize(output_pdf) > 0:
+                return
+    except Exception as e:
+        logger.warning("LibreOffice failed, trying fallback: %s", e)
+
+    # 3. Fallback: PyMuPDF
+    try:
+        doc = fitz.open(input_docx)
+        pdf_bytes = doc.convert_to_pdf()
+        doc.close()
+        del doc
+        with open(output_pdf, "wb") as f:
+            f.write(pdf_bytes)
+        gc.collect()
+        if os.path.exists(output_pdf) and os.path.getsize(output_pdf) > 0:
+            return
+    except Exception as e:
+        raise RuntimeError(f"All Word to PDF conversion engines failed: {e}")
+
+
 @app.post("/api/word-to-pdf")
 def word_to_pdf():
     input_path = None
@@ -384,13 +534,7 @@ def word_to_pdf():
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as out_tmp:
             output_path = out_tmp.name
 
-        doc = fitz.open(input_path)
-        pdf_bytes = doc.convert_to_pdf()
-        doc.close()
-        del doc
-
-        with open(output_path, "wb") as f:
-            f.write(pdf_bytes)
+        convert_docx_to_pdf_high_fidelity(input_path, output_path)
 
         gc.collect()
 

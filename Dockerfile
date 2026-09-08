@@ -2,9 +2,20 @@ FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=5050
+    PORT=5050 \
+    DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
+
+# Install LibreOffice and fonts for high-fidelity DOCX to PDF conversion on Linux
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libreoffice-writer \
+    libreoffice-calc \
+    fonts-dejavu-core \
+    fonts-liberation \
+    fonts-noto-core \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
 COPY requirements.txt .
