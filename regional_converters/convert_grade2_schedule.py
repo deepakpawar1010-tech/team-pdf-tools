@@ -299,7 +299,7 @@ def add_page_break_zero(doc):
     run = p.add_run()
     run.add_break(WD_BREAK.PAGE)
 
-def convert():
+def convert(output_path=None):
     print("=========================================================")
     print(" Telugu Micro Schedule Word (.docx) Generator")
     print(" Target: Grade II Telugu Third Language (Term 1)")
@@ -588,6 +588,12 @@ def convert():
     add_banner(t8, "12-10-2026 TO 21-10-2026 : DUSSEHRA VACATION", "holiday_red")
     
     # Save files
+    if output_path:
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        doc.save(output_path)
+        print(f"[OK] Saved document to: {output_path}")
+        return
+
     local_output = "GRADE_II_TELUGU_TL_TERM-1_MCS_AP_2026-27.docx"
     doc.save(local_output)
     print(f"[OK] Saved document in current folder: {os.path.abspath(local_output)}")

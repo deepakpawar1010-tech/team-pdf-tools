@@ -343,7 +343,9 @@ def pdf_to_word():
         if language != "english":
             try:
                 from regional_converters import convert_regional_pdf
-                handled_by_regional = convert_regional_pdf(input_path, output_path, language=language)
+                handled_by_regional = convert_regional_pdf(
+                    input_path, output_path, language=language, original_filename=upload.filename
+                )
             except Exception as reg_err:
                 logger.warning("Regional converter exception: %s", reg_err)
 
