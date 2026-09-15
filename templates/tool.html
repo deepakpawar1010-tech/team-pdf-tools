@@ -1008,6 +1008,16 @@
           </div>
         </div>
 
+        <label class="field-label" for="wordLanguage">Document Language</label>
+        <select id="wordLanguage" class="quality" style="margin-bottom: 18px; width: 100%;">
+          <option value="auto" selected>🌐 Auto-Detect Language (Recommended)</option>
+          <option value="english">🇬🇧 English (Standard layout engine)</option>
+          <option value="telugu">🇮🇳 Telugu — తెలుగు (Nirmala UI OpenXML)</option>
+          <option value="hindi">🇮🇳 Hindi — हिन्दी (Devanagari Unicode)</option>
+          <option value="gujarati">🇮🇳 Gujarati — ગુજરાતી (Shruti Unicode)</option>
+          <option value="odia">🇮🇳 Odia — ଓଡ଼ିଆ (Akruti to Unicode)</option>
+        </select>
+
         <label class="field-label">Pages to Convert</label>
         <div class="mode-tabs">
           <button id="wordAllPagesBtn" class="active" type="button">All Pages</button>
@@ -1925,6 +1935,8 @@
       }
 
       if (mode === 'pdf-to-word') {
+        const langVal = $('wordLanguage') ? $('wordLanguage').value : 'auto';
+        form.append('language', langVal);
         const customBtn = $('wordCustomPagesBtn');
         if (customBtn && customBtn.classList.contains('active')) {
           const rangeVal = $('wordPageRange').value.trim();
@@ -2028,7 +2040,17 @@
       }
 
       if (mode === 'pdf-to-word') {
-        show('Converting PDF to editable Word (.docx)… this may take a moment.');
+        const langVal = $('wordLanguage') ? $('wordLanguage').value : 'auto';
+        const langNames = {
+          'auto': 'document',
+          'english': 'English PDF',
+          'telugu': 'Telugu PDF',
+          'hindi': 'Hindi PDF',
+          'gujarati': 'Gujarati PDF',
+          'odia': 'Odia PDF'
+        };
+        const langLabel = langNames[langVal] || 'document';
+        show(`Converting ${langLabel} to Word (.docx)… this may take a moment.`);
       } else if (mode === 'word-to-pdf') {
         show('Converting Word to PDF… this may take a moment.');
       } else if (mode === 'compress') {

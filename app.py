@@ -338,14 +338,26 @@ def pdf_to_word():
             except Exception as parse_err:
                 print("Page range parse warning:", parse_err)
 
-        cv = Converter(input_path)
-        if pages_list:
-            cv.convert(output_path, pages=pages_list)
-        else:
-            cv.convert(output_path)
-        cv.close()
-        del cv
-        gc.collect()
+        language = request.form.get("language", "auto").strip().lower()
+        handled_by_regional = False
+        if language != "english":
+            try:
+                from regional_converters import convert_regional_pdf
+                handled_by_regional = convert_regional_pdf(input_path, output_path, language=language)
+            except Exception as reg_err:
+                logger.warning("Regional converter exception: %s", reg_err)
+
+        if not handled_by_regional:
+            if not Converter:
+                raise RuntimeError("PDF to Word conversion module (pdf2docx) is not installed.")
+            cv = Converter(input_path)
+            if pages_list:
+                cv.convert(output_path, pages=pages_list)
+            else:
+                cv.convert(output_path)
+            cv.close()
+            del cv
+            gc.collect()
 
         @after_this_request
         def cleanup(response):
