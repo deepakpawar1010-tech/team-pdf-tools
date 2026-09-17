@@ -125,8 +125,10 @@ def convert_regional_pdf(pdf_path: str, output_docx_path: str, language: str = "
             first_page_text = fdoc[0].get_text() if num_pages > 0 else ""
 
         if lang == "hindi":
-            generate_hindi_ap.generate_hindi_doc(output_docx_path)
-            return True
+            if any(g in fn_upper for g in ["GRADE-2", "GRADE 2", "GRADE_II", "GRADE II"]):
+                generate_hindi_ap.generate_hindi_doc(output_docx_path)
+                return True
+            return False
 
         elif lang == "gujarati":
             generate_gujarati_ap.generate_gujarati_docx(pdf_path, output_docx_path)
@@ -143,13 +145,15 @@ def convert_regional_pdf(pdf_path: str, output_docx_path: str, language: str = "
             elif "PAGES-35-36" in fn_upper or "TELUGU-SL" in fn_upper or "TELUGU - SL" in fn_upper:
                 generate_class4_tg.generate_tg_sl_doc(output_docx_path)
                 return True
-            elif num_pages >= 7 and ("GRADE" in fn_upper or "MCS" in fn_upper or "TERM" in fn_upper or "AP" in fn_upper):
+            elif any(g in fn_upper for g in ["GRADE-2", "GRADE 2", "GRADE_II", "GRADE II"]) and any(t in fn_upper for t in ["TELUGU", "TL"]):
                 convert_grade2_schedule.convert(output_docx_path)
                 return True
-            else:
+            elif "NLEARN" in first_page_text.upper() or "RECOMMENDATIONS" in first_page_text.upper():
                 # Standard 6-column Micro Schedule (Telugu)
                 tel_hin_gj_od.convert_grade2_6col_schedule(pdf_path, output_docx_path)
                 return True
+            else:
+                return False
 
         return False
     except Exception as e:
