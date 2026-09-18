@@ -107,14 +107,21 @@ def worksheet_info():
     try:
         upload = request.files.get("file")
         valid_pdf(upload)
+        preset = request.form.get("preset", "olympiad").lower()
         stop_at_synopsis = request.form.get("stop_at_synopsis", "true").lower() == "true"
+        include_key = request.form.get("include_key", "true").lower() == "true"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
             upload.save(in_tmp.name)
             input_path = in_tmp.name
 
         from worksheet_splitter import get_worksheet_info
-        data = get_worksheet_info(Path(input_path), stop_at_synopsis=stop_at_synopsis)
+        data = get_worksheet_info(
+            Path(input_path),
+            stop_at_synopsis=stop_at_synopsis,
+            preset=preset,
+            include_key=include_key,
+        )
         data["name"] = upload.filename
         return jsonify(data)
     except Exception as error:
@@ -609,6 +616,7 @@ def word_to_pdf():
         return jsonify({"error": str(error)}), 400
 
 
+
 @app.post("/api/worksheet-splitter")
 @app.post("/api/oly-ete-splitter")
 def worksheet_splitter_api():
@@ -616,23 +624,36 @@ def worksheet_splitter_api():
     try:
         upload = request.files.get("file")
         valid_pdf(upload)
+        preset = request.form.get("preset", "olympiad").lower()
         stop_at_synopsis = request.form.get("stop_at_synopsis", "true").lower() == "true"
+        include_key = request.form.get("include_key", "true").lower() == "true"
+        crop_top = request.form.get("crop_top", "true").lower() == "true"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
             upload.save(in_tmp.name)
             input_path = in_tmp.name
 
         from worksheet_splitter import split_pdf_to_zip
-        zip_buf, worksheets = split_pdf_to_zip(Path(input_path), stop_at_synopsis=stop_at_synopsis)
+        zip_buf, worksheets = split_pdf_to_zip(
+            Path(input_path),
+            stop_at_synopsis=stop_at_synopsis,
+            preset=preset,
+            include_key=include_key,
+            crop_top=crop_top,
+        )
         if not worksheets:
-            raise ValueError("No worksheet banners (CUQ or WORKSHEET headings) were detected in this PDF.")
+            if preset == "ssc":
+                raise ValueError("No Multiple Choice Questions (MCQs) or Objective Question sections were detected in this PDF.")
+            else:
+                raise ValueError("No worksheet banners (CUQ or WORKSHEET headings) were detected in this PDF.")
 
         gc.collect()
 
+        suffix = "mcqs" if preset == "ssc" else "worksheets"
         return send_file(
             zip_buf,
             as_attachment=True,
-            download_name=output_name(upload.filename, "worksheets").replace(".pdf", ".zip"),
+            download_name=output_name(upload.filename, suffix).replace(".pdf", ".zip"),
             mimetype="application/zip"
         )
     except Exception as error:

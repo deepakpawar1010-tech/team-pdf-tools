@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% if tool=='pdf-to-word' %}PDF to Word{% elif tool=='word-to-pdf' %}Word to PDF{% else %}{{ tool|title }} PDF{% endif %} — Team PDF Studio</title>
+  <title>{% if tool=='pdf-to-word' %}PDF to Word{% elif tool=='word-to-pdf' %}Word to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Work-sheet Splitter{% else %}{{ tool|title }} PDF{% endif %} — Team PDF Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -811,7 +811,7 @@
       <a class="{% if tool=='compress' %}active{% endif %}" href="/compress">Compress</a>
       <a class="{% if tool=='pdf-to-word' %}active{% endif %}" href="/pdf-to-word">PDF to Word</a>
       <a class="{% if tool=='word-to-pdf' %}active{% endif %}" href="/word-to-pdf">Word to PDF</a>
-      <a class="{% if tool in ['worksheet-splitter', 'oly-ete-splitter'] %}active{% endif %}" href="/worksheet-splitter">Oly/Ete Splitter</a>
+      <a class="{% if tool in ['worksheet-splitter', 'oly-ete-splitter'] %}active{% endif %}" href="/worksheet-splitter">Work-sheet Splitter</a>
       <a href="/pdf-to-markdown">PDF to Markdown <span class="soon-badge">Soon</span></a>
       <a href="/pdf-to-excel">PDF to Excel <span class="soon-badge">Soon</span></a>
     </nav>
@@ -823,7 +823,7 @@
         <div class="drop-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 0 1-.88-7.903A5 5 0 1 1 15.9 6L16 6a5 5 0 0 1 1 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
         </div>
-        <strong>{% if tool=='merge' %}Drop your PDF files here{% elif tool=='pdf-to-word' %}Drop your PDF file here to convert to Word{% elif tool=='word-to-pdf' %}Drop your Word document (.docx) here to convert to PDF{% else %}Drop your PDF file here{% endif %}</strong>
+        <strong>{% if tool=='merge' %}Drop your PDF files here{% elif tool=='pdf-to-word' %}Drop your PDF file here to convert to Word{% elif tool=='word-to-pdf' %}Drop your Word document (.docx) here to convert to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Drop your textbook or worksheet PDF here{% else %}Drop your PDF file here{% endif %}</strong>
         <span>or click to browse files from your computer</span>
         <div class="browse-btn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14"/></svg>
@@ -834,7 +834,7 @@
 
       <div id="empty" class="empty">
         <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z"/></svg>
-        <h2>{% if tool=='merge' %}Add PDF files to merge{% elif tool=='split' %}Add a PDF to split{% elif tool=='pdf-to-word' %}Add a PDF to convert to Word{% elif tool=='word-to-pdf' %}Add a Word document to convert to PDF{% else %}Add a PDF to compress{% endif %}</h2>
+        <h2>{% if tool=='merge' %}Add PDF files to merge{% elif tool=='split' %}Add a PDF to split{% elif tool=='pdf-to-word' %}Add a PDF to convert to Word{% elif tool=='word-to-pdf' %}Add a Word document to convert to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Add a PDF to split into worksheets{% else %}Add a PDF to compress{% endif %}</h2>
         <p>Private &amp; secure — files are processed in memory and never stored.</p>
       </div>
 
@@ -958,8 +958,8 @@
       <div id="worksheetArea" class="hidden">
         <div style="margin-bottom: 24px; display: flex; align-items: flex-start; justify-content: space-between;">
           <div>
-            <span style="font-size: 11px; font-weight: 800; color: #9333ea; text-transform: uppercase; letter-spacing: 1px;">Olympiad / ETE Splitter</span>
-            <h2 style="font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px;">Oly/Ete Worksheet Splitter</h2>
+            <span id="wsCategoryTag" style="font-size: 11px; font-weight: 800; color: #9333ea; text-transform: uppercase; letter-spacing: 1px;">Olympiad / e-Techno Splitter</span>
+            <h2 id="wsMainHeading" style="font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px;">Work-sheet Splitter</h2>
           </div>
           <button id="clearWorksheetFile" class="small-btn" type="button" style="color: #9333ea;">Clear file</button>
         </div>
@@ -975,16 +975,16 @@
 
         <div id="wsDetectedContainer" style="background: white; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 22px; margin-bottom: 20px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
-            <h3 style="font-size: 15px; font-weight: 800; color: var(--text); display: flex; align-items: center; gap: 8px;">
+            <h3 id="wsContainerTitle" style="font-size: 15px; font-weight: 800; color: var(--text); display: flex; align-items: center; gap: 8px;">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9333ea" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
-              Detected Worksheets
+              Detected Sections
             </h3>
             <span id="wsCountBadge" style="font-size: 12px; font-weight: 700; background: #faf5ff; color: #9333ea; border: 1px solid #f3e8ff; padding: 3px 10px; border-radius: 9999px;">Detecting…</span>
           </div>
           <div id="wsListGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-bottom: 16px;"></div>
-          <div style="font-size: 13px; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 12px; display: flex; align-items: center; gap: 8px;">
+          <div id="wsFooterNote" style="font-size: 13px; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 12px; display: flex; align-items: center; gap: 8px;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            <span>Automatically crops headers to the CUQ banner line and creates individual PDFs.</span>
+            <span id="wsFooterNoteText">Automatically crops headers to the CUQ banner line and creates individual PDFs.</span>
           </div>
         </div>
       </div>
@@ -993,7 +993,7 @@
     <aside class="side">
       <h1>
         <span style="color: {% if tool in ['pdf-to-word', 'word-to-pdf'] %}#2563eb{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}#9333ea{% else %}var(--primary){% endif %};">●</span>
-        {% if tool=='pdf-to-word' %}PDF to Word{% elif tool=='word-to-pdf' %}Word to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Oly/Ete Worksheet Splitter{% else %}{{ tool|title }} PDF{% endif %}
+        {% if tool=='pdf-to-word' %}PDF to Word{% elif tool=='word-to-pdf' %}Word to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Work-sheet Splitter{% else %}{{ tool|title }} PDF{% endif %}
       </h1>
 
       <div class="side-content">
@@ -1080,23 +1080,45 @@
           Converts Microsoft Word (.docx) documents directly into standardized, print-ready PDF files with fonts, tables, and images preserved.
         </p>
         {% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}
-        <label class="field-label">Tool Output</label>
-        <div style="background: white; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; gap: 10px; margin-bottom: 18px;">
-          <div style="width: 32px; height: 32px; border-radius: 8px; background: #faf5ff; color: #9333ea; display: grid; place-items: center; font-weight: 800; font-size: 11px;">ZIP</div>
-          <div>
-            <div style="font-size: 13.5px; font-weight: 700; color: var(--text);">Worksheets Archive (.zip)</div>
-            <div style="font-size: 11.5px; color: var(--text-muted);">Individual cropped worksheet PDFs</div>
-          </div>
+        <label class="field-label">Curriculum Preset</label>
+        <div class="mode-tabs">
+          <button id="presetOlympiad" class="active" type="button">Olympiad / e-Techno</button>
+          <button id="presetSSC" type="button">AP / TS SSC (MCQs)</button>
         </div>
 
-        <label class="check" style="margin: 14px 0 16px; font-size: 13px; font-weight: 700; color: var(--text);">
-          <input id="stopAtSynopsis" type="checkbox" checked style="accent-color: #9333ea;">
-          Stop worksheets before Synopsis
-        </label>
+        <!-- Olympiad Options -->
+        <div id="olympiadOptions" style="margin-top: 14px;">
+          <label class="check" style="font-size: 13px; font-weight: 700; color: var(--text);">
+            <input id="stopAtSynopsis" type="checkbox" checked style="accent-color: #9333ea;">
+            Stop worksheets before Synopsis
+          </label>
+          <p class="hint" style="line-height: 1.6; margin-top: 10px;">
+            Scans for CUQ and Worksheet banners, automatically trims before any Synopsis theory section, and bundles each worksheet into an organized ZIP archive.
+          </p>
+        </div>
 
-        <p class="hint" style="line-height: 1.6; margin-top: 10px;">
-          Scans for CUQ and Worksheet banners, automatically trims before any Synopsis theory section, and bundles each worksheet into an organized ZIP archive.
-        </p>
+        <!-- SSC Options -->
+        <div id="sscOptions" class="hidden" style="margin-top: 14px;">
+          <label class="check" style="font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 10px;">
+            <input id="includeKey" type="checkbox" checked style="accent-color: #9333ea;">
+            Include Answer Key
+          </label>
+          <label class="check" style="font-size: 13px; font-weight: 700; color: var(--text);">
+            <input id="cropTop" type="checkbox" checked style="accent-color: #9333ea;">
+            Crop above Objective banner
+          </label>
+          <p class="hint" style="line-height: 1.6; margin-top: 10px;">
+            Extracts Multiple Choice &amp; Objective Questions up to the Answer Key, automatically cutting off any previous exercise content from the top of the page.
+          </p>
+        </div>
+
+        <div style="background: white; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; gap: 10px; margin-top: 18px;">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: #faf5ff; color: #9333ea; display: grid; place-items: center; font-weight: 800; font-size: 11px;">ZIP</div>
+          <div>
+            <div style="font-size: 13.5px; font-weight: 700; color: var(--text);">Split PDFs Archive (.zip)</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Individual cropped PDF files</div>
+          </div>
+        </div>
         {% else %}
         <p class="hint" style="line-height: 1.6; margin-top: 10px;">
           Upload multiple PDF documents. Drag and drop the thumbnail cards on the left to reorder them before merging.
@@ -1574,7 +1596,53 @@
       if (clearBtn) clearBtn.onclick = cleanup;
     }
 
+    function initWorksheetPresetControls() {
+      const olyBtn = $('presetOlympiad');
+      const sscBtn = $('presetSSC');
+      const olyOpts = $('olympiadOptions');
+      const sscOpts = $('sscOptions');
+      const stopAtSyn = $('stopAtSynopsis');
+      const incKey = $('includeKey');
+      const cropTop = $('cropTop');
+
+      if (olyBtn && !olyBtn._hasListener) {
+        olyBtn._hasListener = true;
+        olyBtn.onclick = () => {
+          state.worksheetPreset = 'olympiad';
+          olyBtn.classList.add('active');
+          if (sscBtn) sscBtn.classList.remove('active');
+          if (olyOpts) olyOpts.classList.remove('hidden');
+          if (sscOpts) sscOpts.classList.add('hidden');
+          if ($('wsCategoryTag')) $('wsCategoryTag').textContent = 'Olympiad / e-Techno Splitter';
+          if ($('wsFooterNoteText')) $('wsFooterNoteText').textContent = 'Automatically crops headers to the CUQ banner line and creates individual PDFs.';
+          renderWorksheetArea();
+        };
+      }
+
+      if (sscBtn && !sscBtn._hasListener) {
+        sscBtn._hasListener = true;
+        sscBtn.onclick = () => {
+          state.worksheetPreset = 'ssc';
+          sscBtn.classList.add('active');
+          if (olyBtn) olyBtn.classList.remove('active');
+          if (sscOpts) sscOpts.classList.remove('hidden');
+          if (olyOpts) olyOpts.classList.add('hidden');
+          if ($('wsCategoryTag')) $('wsCategoryTag').textContent = 'AP & TS SSC MCQ Splitter';
+          if ($('wsFooterNoteText')) $('wsFooterNoteText').textContent = 'Extracts Multiple Choice Questions up to Answer Key, cropping out preceding exercises.';
+          renderWorksheetArea();
+        };
+      }
+
+      [stopAtSyn, incKey, cropTop].forEach(chk => {
+        if (chk && !chk._hasListener) {
+          chk._hasListener = true;
+          chk.onchange = () => renderWorksheetArea();
+        }
+      });
+    }
+
     async function renderWorksheetArea() {
+      initWorksheetPresetControls();
       if (!state.files.length) return;
       const file = state.files[0];
       if ($('worksheetFileName')) $('worksheetFileName').textContent = file.name;
@@ -1588,17 +1656,20 @@
       const removeBtn = $('removeWorksheetFile');
       if (removeBtn) removeBtn.onclick = cleanup;
       const clearBtn = $('clearWorksheetFile');
-      const stopAtSynCheck = $('stopAtSynopsis');
-      if (stopAtSynCheck && !stopAtSynCheck._hasListener) {
-        stopAtSynCheck._hasListener = true;
-        stopAtSynCheck.onchange = () => renderWorksheetArea();
-      }
+      if (clearBtn) clearBtn.onclick = cleanup;
 
       try {
         const form = new FormData();
         form.append('file', file);
+        const preset = state.worksheetPreset || 'olympiad';
         const stopAtSyn = $('stopAtSynopsis') ? $('stopAtSynopsis').checked : true;
+        const incKey = $('includeKey') ? $('includeKey').checked : true;
+        const cropTop = $('cropTop') ? $('cropTop').checked : true;
+        form.append('preset', preset);
         form.append('stop_at_synopsis', stopAtSyn ? 'true' : 'false');
+        form.append('include_key', incKey ? 'true' : 'false');
+        form.append('crop_top', cropTop ? 'true' : 'false');
+
         const r = await fetch('/api/worksheet-info', { method: 'POST', body: form });
         if (r.ok) {
           const data = await r.json();
@@ -1619,10 +1690,19 @@
       const badge = $('wsCountBadge');
       if (!container || !badge) return;
       container.innerHTML = '';
-      badge.textContent = `${worksheets.length} Worksheets Found`;
+
+      const preset = state.worksheetPreset || 'olympiad';
+      const countLabel = preset === 'ssc' 
+        ? (worksheets.length === 1 ? '1 MCQ Section Found' : `${worksheets.length} MCQ Sections Found`)
+        : (worksheets.length === 1 ? '1 Worksheet Found' : `${worksheets.length} Worksheets Found`);
+      badge.textContent = countLabel;
+
       if (!worksheets.length) {
+        const emptyMsg = preset === 'ssc'
+          ? 'ℹ️ Ready to process. The splitter will scan for Multiple Choice and Objective Question banners up to the Answer Key.'
+          : 'ℹ️ Ready to process. The splitter will scan for CUQ and Worksheet banners to generate individual PDF worksheets.';
         container.innerHTML = `<div style="grid-column: 1 / -1; padding: 12px 16px; background: #faf5ff; border-radius: 8px; color: #6b21a8; font-size: 13.5px; border: 1px dashed #d8b4fe;">
-          ℹ️ Ready to process. The splitter will scan for CUQ and Worksheet banners to generate individual PDF worksheets.
+          ${emptyMsg}
         </div>`;
         return;
       }
@@ -2080,8 +2160,14 @@
       }
 
       if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
+        const preset = state.worksheetPreset || 'olympiad';
         const stopAtSyn = $('stopAtSynopsis') ? $('stopAtSynopsis').checked : true;
+        const incKey = $('includeKey') ? $('includeKey').checked : true;
+        const cropTop = $('cropTop') ? $('cropTop').checked : true;
+        form.append('preset', preset);
         form.append('stop_at_synopsis', stopAtSyn ? 'true' : 'false');
+        form.append('include_key', incKey ? 'true' : 'false');
+        form.append('crop_top', cropTop ? 'true' : 'false');
       }
 
       setBusy(true);
@@ -2196,7 +2282,8 @@
       } else if (mode === 'compress') {
         show('Compressing pages… this may take a moment for large files.');
       } else if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
-        show('Splitting worksheets and packaging into ZIP archive…');
+        const preset = state.worksheetPreset || 'olympiad';
+        show(preset === 'ssc' ? 'Extracting SSC Multiple Choice Questions into ZIP archive…' : 'Splitting worksheets and packaging into ZIP archive…');
       } else {
         show('Processing PDF…');
       }
@@ -2223,7 +2310,7 @@
         const blob = await r.blob();
         let name = mode === 'pdf-to-word' ? (state.files[0].name.replace(/\.pdf$/i, '') + '-converted.docx')
                  : mode === 'word-to-pdf' ? (state.files[0].name.replace(/\.(docx|doc)$/i, '') + '-converted.pdf')
-                 : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? (state.files[0].name.replace(/\.pdf$/i, '') + '-worksheets.zip')
+                 : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? (state.files[0].name.replace(/\.pdf$/i, '') + (state.worksheetPreset === 'ssc' ? '-mcqs.zip' : '-worksheets.zip'))
                  : mode + '.pdf';
         const cd = r.headers.get('Content-Disposition');
         const m = cd && cd.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);

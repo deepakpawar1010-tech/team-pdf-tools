@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 WORKSHEET_PATTERN = re.compile(r"\bWORKSHEET\s*-?\s*(\d{1,3})\b", re.IGNORECASE)
 SYNOPSIS_PATTERN = re.compile(r"\bSYNOPSIS\s*-?\s*(\d{1,3})?\b", re.IGNORECASE)
 CUQ_PATTERN = re.compile(r"^\s*CUQ\s*$", re.IGNORECASE)
+SSC_START_PATTERN = re.compile(
+    r"\b(?:MULTIPLE\s+CHOICE\s+QUESTIONS|OBJECTIVE\s+TYPE\s+QUESTIONS|OBJECTIVE\s+EXERCISE)\b",
+    re.IGNORECASE,
+)
+SSC_KEY_PATTERN = re.compile(r"^\s*[*#]*\s*(?:KEY|ANSWER\s+KEY)(?:\s*:|\s*$)", re.IGNORECASE)
 
 # Compact binary template (24x120 pixels) for graphic SYNOPSIS header badges
 B64_SYNOPSIS_TEMPLATE = (
@@ -312,6 +317,213 @@ def detect_all_boundaries(pdf_path: Path) -> list[BoundaryMarker]:
         return markers
 
 
+def _detect_key_on_page(page: fitz.Page) -> tuple[float, float, float, float] | None:
+    lines = [line.strip() for line in page.get_text().splitlines() if line.strip()]
+
+    # 1. Text header: standalone "KEY" or "ANSWER KEY" or table header containing Q.NO & KEY
+    for line in lines:
+        if line.upper() in {"KEY", "ANSWER KEY"} or re.match(r"^[*#]*\s*(?:KEY|ANSWER\s+KEY)\s*$", line, re.IGNORECASE):
+            rects = page.search_for(line)
+            if rects:
+                return (rects[0].x0, rects[0].y0, rects[0].x1, rects[0].y1)
+        if "Q.NO" in line.upper() and "KEY" in line.upper():
+            rects = page.search_for("KEY")
+            if rects:
+                return (rects[0].x0, rects[0].y0, rects[0].x1, rects[0].y1)
+
+    # 2. Vector badge "KEY" centered on page (red badge with white outline)
+    drawings = page.get_drawings()
+    badge_candidates = [
+        d for d in drawings
+        if 200 <= d["rect"].y0 <= 500 and 25 <= d["rect"].width <= 80 and d.get("fill") and d["fill"][0] > 0.7 and d["fill"][1] < 0.2
+    ]
+    if badge_candidates:
+        r = badge_candidates[0]["rect"]
+        return (r.x0, r.y0, r.x1, r.y1)
+
+    # 3. Check for consecutive answer key list: 1), 2), 3), 4), 5), 6)...
+    nums: list[int] = []
+    first_key_line: str | None = None
+    for line in lines:
+        m = re.match(r"^(\d{1,3})\)\s*[1-4A-D]?\s*$", line)
+        if m:
+            n = int(m.group(1))
+            if not nums and n == 1:
+                nums.append(1)
+                first_key_line = line
+            elif nums and n == nums[-1] + 1:
+                nums.append(n)
+        else:
+            if len(nums) >= 6:
+                break
+            nums = []
+            first_key_line = None
+
+    if len(nums) >= 6 and first_key_line:
+        rects = page.search_for(first_key_line)
+        if rects:
+            return (rects[0].x0, rects[0].y0, rects[0].x1, rects[0].y1)
+
+    return None
+
+
+def detect_ssc_boundaries(pdf_path: Path) -> list[BoundaryMarker]:
+    """
+    Detects AP SSC and TS SSC Multiple Choice / Objective Questions boundaries.
+    """
+    with fitz.open(pdf_path) as document:
+        markers: list[BoundaryMarker] = []
+        section_index = 0
+        seen_start_pages: set[int] = set()
+
+        for page in document:
+            page_num = page.number + 1
+            for line in _group_words_into_lines(page):
+                match = SSC_START_PATTERN.search(line.text)
+                if match and page_num not in seen_start_pages:
+                    seen_start_pages.add(page_num)
+                    section_index += 1
+                    markers.append(
+                        BoundaryMarker(
+                            kind="worksheet",
+                            name=f"Objective-Q{section_index}" if section_index > 1 else "Objective-Questions",
+                            page_number=page_num,
+                            bbox=line.bbox,
+                            trigger_text=match.group(0),
+                            reason=f"Found '{match.group(0)}' header.",
+                        )
+                    )
+                    break
+
+        if not markers:
+            return []
+
+        # Find KEY boundaries following the first start marker
+        for page in document:
+            page_num = page.number + 1
+            if page_num < markers[0].page_number:
+                continue
+            kb = _detect_key_on_page(page)
+            if kb is not None:
+                markers.append(
+                    BoundaryMarker(
+                        kind="key",
+                        name="Answer-Key",
+                        page_number=page_num,
+                        bbox=kb,
+                        trigger_text="KEY",
+                        reason="Found Answer Key section.",
+                    )
+                )
+
+        markers.sort(key=lambda item: (item.page_number, item.bbox[1], item.bbox[0]))
+        return markers
+
+
+def detect_all_boundaries(pdf_path: Path, preset: str = "olympiad") -> list[BoundaryMarker]:
+    if preset == "ssc":
+        return detect_ssc_boundaries(pdf_path)
+
+    # Olympiad / e-Techno preset
+    with fitz.open(pdf_path) as document:
+        markers: list[BoundaryMarker] = []
+        seen_ws_pages: set[int] = set()
+        worksheet_index = 0
+
+        # Pass 1: Look for CUQ lines (Standard for Olympiad / e-Techno materials)
+        for page in document:
+            for line in _group_words_into_lines(page):
+                if line.page_number in seen_ws_pages:
+                    continue
+                if CUQ_PATTERN.match(line.text):
+                    seen_ws_pages.add(line.page_number)
+                    worksheet_index += 1
+                    markers.append(
+                        BoundaryMarker(
+                            kind="worksheet",
+                            name=f"WS-{worksheet_index}",
+                            page_number=line.page_number,
+                            bbox=line.bbox,
+                            trigger_text=line.text,
+                            reason="Found 'CUQ' directly below worksheet banner.",
+                        )
+                    )
+
+        # Pass 2: If no CUQ found, check for explicit WORKSHEET patterns
+        if not markers:
+            seen_ws: set[str] = set()
+            for page in document:
+                for line in _group_words_into_lines(page):
+                    match = WORKSHEET_PATTERN.search(line.text)
+                    if match:
+                        ws_num = match.group(1)
+                        ws_key = f"WS-{int(ws_num)}"
+                        if ws_key not in seen_ws and line.page_number not in seen_ws_pages:
+                            seen_ws.add(ws_key)
+                            seen_ws_pages.add(line.page_number)
+                            markers.append(
+                                BoundaryMarker(
+                                    kind="worksheet",
+                                    name=ws_key,
+                                    page_number=line.page_number,
+                                    bbox=line.bbox,
+                                    trigger_text=match.group(0),
+                                    reason=f"Found explicit header '{match.group(0)}'.",
+                                )
+                            )
+
+        # Pass 3: Look for SYNOPSIS boundaries (Text lines & Graphic banners)
+        synopsis_index = 0
+        seen_synopsis_pages: set[int] = set()
+        for page in document:
+            page_num = page.number + 1
+            found_on_page = False
+
+            # 3a. Text lines check
+            for line in _group_words_into_lines(page):
+                syn_match = SYNOPSIS_PATTERN.search(line.text)
+                if syn_match:
+                    syn_num = syn_match.group(1) if syn_match.groups() and syn_match.group(1) else ""
+                    syn_name = f"Synopsis {syn_num}".strip() if syn_num else f"Synopsis {synopsis_index + 1}"
+                    synopsis_index += 1
+                    markers.append(
+                        BoundaryMarker(
+                            kind="synopsis",
+                            name=syn_name,
+                            page_number=page_num,
+                            bbox=line.bbox,
+                            trigger_text=line.text,
+                            reason="Found 'SYNOPSIS' in text.",
+                        )
+                    )
+                    seen_synopsis_pages.add(page_num)
+                    found_on_page = True
+                    break
+
+            if found_on_page:
+                continue
+
+            # 3b. Graphic image banner check (handles outlined vector titles with image drop-shadows)
+            img_bboxes = _detect_synopsis_images_on_page(document, page)
+            for bbox in img_bboxes:
+                synopsis_index += 1
+                markers.append(
+                    BoundaryMarker(
+                        kind="synopsis",
+                        name=f"Synopsis {synopsis_index}",
+                        page_number=page_num,
+                        bbox=bbox,
+                        trigger_text="SYNOPSIS BANNER",
+                        reason="Matched graphic SYNOPSIS header banner.",
+                    )
+                )
+                seen_synopsis_pages.add(page_num)
+                break
+
+        markers.sort(key=lambda item: (item.page_number, item.bbox[1], item.bbox[0]))
+        return markers
+
+
 def detect_worksheet_candidates(pdf_path: Path) -> list[WorksheetCandidate]:
     """Returns worksheet candidates for backwards compatibility."""
     boundaries = detect_all_boundaries(pdf_path)
@@ -334,10 +546,15 @@ def build_worksheet_ranges(
     candidates_or_markers: list[WorksheetCandidate | BoundaryMarker],
     total_pages: int,
     stop_at_synopsis: bool = True,
+    preset: str = "olympiad",
+    include_key: bool = True,
 ) -> list[WorksheetRange]:
     """
     Builds non-overlapping worksheet page ranges.
-    When stop_at_synopsis is True, each worksheet stops before any subsequent Synopsis section starts.
+    When preset is 'ssc':
+      Each objective section stops at the KEY boundary (inclusive if include_key=True).
+    When preset is 'olympiad':
+      When stop_at_synopsis is True, each worksheet stops before any subsequent Synopsis section starts.
     """
     ranges: list[WorksheetRange] = []
 
@@ -345,32 +562,50 @@ def build_worksheet_ranges(
         if getattr(marker, "kind", "worksheet") != "worksheet":
             continue
 
-        # Look forward for the next relevant boundary
-        next_boundary = None
-        for candidate in candidates_or_markers[idx + 1 :]:
-            c_kind = getattr(candidate, "kind", "worksheet")
-            if stop_at_synopsis or c_kind == "worksheet":
-                next_boundary = candidate
-                break
-
         name = getattr(marker, "worksheet_name", None) or getattr(marker, "name", "WS")
         start_page = marker.page_number
 
-        if next_boundary is not None:
-            if next_boundary.page_number == start_page:
-                end_page = start_page
-                end_bbox = next_boundary.bbox
-            elif next_boundary.bbox[1] < 250:
-                # Next boundary starts near the top of the subsequent page: exclude that page completely
-                end_page = max(start_page, next_boundary.page_number - 1)
-                end_bbox = None
+        if preset == "ssc":
+            next_marker = None
+            for candidate in candidates_or_markers[idx + 1 :]:
+                c_kind = getattr(candidate, "kind", "")
+                if c_kind in {"key", "worksheet"}:
+                    next_marker = candidate
+                    break
+
+            if next_marker is not None:
+                c_kind = getattr(next_marker, "kind", "")
+                if c_kind == "key":
+                    end_page = next_marker.page_number
+                    end_bbox = None if include_key else next_marker.bbox
+                else:
+                    end_page = max(start_page, next_marker.page_number - 1)
+                    end_bbox = None
             else:
-                # Next boundary starts mid-page: include the page up to the boundary bbox
-                end_page = next_boundary.page_number
-                end_bbox = next_boundary.bbox
+                end_page = total_pages
+                end_bbox = None
         else:
-            end_page = total_pages
-            end_bbox = None
+            # Look forward for the next relevant boundary
+            next_boundary = None
+            for candidate in candidates_or_markers[idx + 1 :]:
+                c_kind = getattr(candidate, "kind", "worksheet")
+                if stop_at_synopsis or c_kind == "worksheet":
+                    next_boundary = candidate
+                    break
+
+            if next_boundary is not None:
+                if next_boundary.page_number == start_page:
+                    end_page = start_page
+                    end_bbox = next_boundary.bbox
+                elif next_boundary.bbox[1] < 250:
+                    end_page = max(start_page, next_boundary.page_number - 1)
+                    end_bbox = None
+                else:
+                    end_page = next_boundary.page_number
+                    end_bbox = next_boundary.bbox
+            else:
+                end_page = total_pages
+                end_bbox = None
 
         ranges.append(
             WorksheetRange(
