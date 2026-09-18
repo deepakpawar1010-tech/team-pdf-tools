@@ -1,16 +1,42 @@
 from __future__ import annotations
 
+import base64
+import logging
 import re
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 import pymupdf as fitz
 
+logger = logging.getLogger(__name__)
 
 WORKSHEET_PATTERN = re.compile(r"\bWORKSHEET\s*-?\s*(\d{1,3})\b", re.IGNORECASE)
-SYNOPSIS_PATTERN = re.compile(r"\bSYNOPSIS\s*-?\s*(\d{1,3})\b", re.IGNORECASE)
+SYNOPSIS_PATTERN = re.compile(r"\bSYNOPSIS\s*-?\s*(\d{1,3})?\b", re.IGNORECASE)
 CUQ_PATTERN = re.compile(r"^\s*CUQ\s*$", re.IGNORECASE)
+
+# Compact binary template (24x120 pixels) for graphic SYNOPSIS header badges
+B64_SYNOPSIS_TEMPLATE = (
+    "eJx9z8FtwzAMBVDSDPp7MKIFimoTe7HCpqIBOkJXYdBD1xDQBQTkkkNghXJy6aU8iHgQQH629qe2"
+    "ub+3tbVrb5WCItegoYxcUCicJBsUemATIwySVVTowComwwtnZeWd6buTWUkAyemiR8piyfAD+dXm"
+    "PMEpDdw02jsNnbSCZsOTiSI0mJSJhmA+OfjywmV69V/fDJhUrstOGFBkc46d4Qrc5Cs5xTmtwCyf"
+    "57ocRTRtEYietpM4bZ6Z/JK6BNEn8aCJc+zETjjfPEmJzlzjuekH29z+rTtGWZhZ"
+)
+_CACHED_SYNOPSIS_TEMPLATE = None
+
+
+def _get_synopsis_template():
+    global _CACHED_SYNOPSIS_TEMPLATE
+    if _CACHED_SYNOPSIS_TEMPLATE is None:
+        try:
+            import numpy as np
+            rec_packed = np.frombuffer(zlib.decompress(base64.b64decode(B64_SYNOPSIS_TEMPLATE)), dtype=np.uint8)
+            _CACHED_SYNOPSIS_TEMPLATE = np.unpackbits(rec_packed).reshape((24, 120)) * 255
+        except Exception as err:
+            logger.debug("Could not unpack synopsis template: %s", err)
+            _CACHED_SYNOPSIS_TEMPLATE = False
+    return _CACHED_SYNOPSIS_TEMPLATE if _CACHED_SYNOPSIS_TEMPLATE is not False else None
 
 
 @dataclass(frozen=True)
@@ -40,6 +66,16 @@ class WorksheetCandidate:
     page_number: int
     trigger_text: str
     bbox: tuple[float, float, float, float]
+    reason: str
+
+
+@dataclass(frozen=True)
+class BoundaryMarker:
+    kind: str  # "worksheet" or "synopsis"
+    name: str
+    page_number: int
+    bbox: tuple[float, float, float, float]
+    trigger_text: str
     reason: str
 
 
@@ -135,32 +171,74 @@ def detect_headings(pdf_path: Path) -> list[HeadingMatch]:
         return matches
 
 
-def detect_worksheet_candidates(pdf_path: Path) -> list[WorksheetCandidate]:
+def _detect_synopsis_images_on_page(doc: fitz.Document, page: fitz.Page) -> list[tuple[float, float, float, float]]:
+    template = _get_synopsis_template()
+    if template is None:
+        return []
+
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return []
+
+    matches: list[tuple[float, float, float, float]] = []
+    for img in page.get_images():
+        xref = img[0]
+        rects = page.get_image_rects(xref)
+        for r in rects:
+            if r.y0 < 250:
+                try:
+                    pix = fitz.Pixmap(doc, xref)
+                    if pix.width < 80 or pix.height < 15:
+                        continue
+                    if pix.n >= 3:
+                        pix_rgb = fitz.Pixmap(fitz.csRGB, pix) if pix.colorspace.name != "DeviceRGB" else pix
+                        arr = np.frombuffer(pix_rgb.samples, dtype=np.uint8).reshape((pix_rgb.height, pix_rgb.width, 3))
+                        gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+                    else:
+                        gray = np.frombuffer(pix.samples, dtype=np.uint8).reshape((pix.height, pix.width))
+
+                    norm = cv2.resize(gray, (120, 24))
+                    _, b = cv2.threshold(norm, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                    score = float(np.mean(template == b))
+                    if score >= 0.85:
+                        matches.append((r.x0, r.y0, r.x1, r.y1))
+                except Exception:
+                    continue
+    return matches
+
+
+def detect_all_boundaries(pdf_path: Path) -> list[BoundaryMarker]:
+    """
+    Detects both Worksheet start boundaries and Synopsis start boundaries in document order.
+    """
     with fitz.open(pdf_path) as document:
-        candidates: list[WorksheetCandidate] = []
-        seen_pages: set[int] = set()
+        markers: list[BoundaryMarker] = []
+        seen_ws_pages: set[int] = set()
         worksheet_index = 0
 
         # Pass 1: Look for CUQ lines (Standard for Olympiad / e-Techno materials)
         for page in document:
             for line in _group_words_into_lines(page):
-                if line.page_number in seen_pages:
+                if line.page_number in seen_ws_pages:
                     continue
                 if CUQ_PATTERN.match(line.text):
-                    seen_pages.add(line.page_number)
+                    seen_ws_pages.add(line.page_number)
                     worksheet_index += 1
-                    candidates.append(
-                        WorksheetCandidate(
-                            worksheet_name=f"WS-{worksheet_index}",
+                    markers.append(
+                        BoundaryMarker(
+                            kind="worksheet",
+                            name=f"WS-{worksheet_index}",
                             page_number=line.page_number,
-                            trigger_text=line.text,
                             bbox=line.bbox,
-                            reason="Found 'CUQ' directly below the worksheet banner, so worksheet names are assigned sequentially.",
+                            trigger_text=line.text,
+                            reason="Found 'CUQ' directly below worksheet banner.",
                         )
                     )
 
         # Pass 2: If no CUQ found, check for explicit WORKSHEET patterns
-        if not candidates:
+        if not markers:
             seen_ws: set[str] = set()
             for page in document:
                 for line in _group_words_into_lines(page):
@@ -168,36 +246,140 @@ def detect_worksheet_candidates(pdf_path: Path) -> list[WorksheetCandidate]:
                     if match:
                         ws_num = match.group(1)
                         ws_key = f"WS-{int(ws_num)}"
-                        if ws_key not in seen_ws and line.page_number not in seen_pages:
+                        if ws_key not in seen_ws and line.page_number not in seen_ws_pages:
                             seen_ws.add(ws_key)
-                            seen_pages.add(line.page_number)
-                            candidates.append(
-                                WorksheetCandidate(
-                                    worksheet_name=ws_key,
+                            seen_ws_pages.add(line.page_number)
+                            markers.append(
+                                BoundaryMarker(
+                                    kind="worksheet",
+                                    name=ws_key,
                                     page_number=line.page_number,
-                                    trigger_text=match.group(0),
                                     bbox=line.bbox,
+                                    trigger_text=match.group(0),
                                     reason=f"Found explicit header '{match.group(0)}'.",
                                 )
                             )
 
-        candidates.sort(key=lambda item: item.page_number)
-        return candidates
+        # Pass 3: Look for SYNOPSIS boundaries (Text lines & Graphic banners)
+        synopsis_index = 0
+        seen_synopsis_pages: set[int] = set()
+        for page in document:
+            page_num = page.number + 1
+            found_on_page = False
+
+            # 3a. Text lines check
+            for line in _group_words_into_lines(page):
+                syn_match = SYNOPSIS_PATTERN.search(line.text)
+                if syn_match:
+                    syn_num = syn_match.group(1) if syn_match.groups() and syn_match.group(1) else ""
+                    syn_name = f"Synopsis {syn_num}".strip() if syn_num else f"Synopsis {synopsis_index + 1}"
+                    synopsis_index += 1
+                    markers.append(
+                        BoundaryMarker(
+                            kind="synopsis",
+                            name=syn_name,
+                            page_number=page_num,
+                            bbox=line.bbox,
+                            trigger_text=line.text,
+                            reason="Found 'SYNOPSIS' in text.",
+                        )
+                    )
+                    seen_synopsis_pages.add(page_num)
+                    found_on_page = True
+                    break
+
+            if found_on_page:
+                continue
+
+            # 3b. Graphic image banner check (handles outlined vector titles with image drop-shadows)
+            img_bboxes = _detect_synopsis_images_on_page(document, page)
+            for bbox in img_bboxes:
+                synopsis_index += 1
+                markers.append(
+                    BoundaryMarker(
+                        kind="synopsis",
+                        name=f"Synopsis {synopsis_index}",
+                        page_number=page_num,
+                        bbox=bbox,
+                        trigger_text="SYNOPSIS BANNER",
+                        reason="Matched graphic SYNOPSIS header banner.",
+                    )
+                )
+                seen_synopsis_pages.add(page_num)
+                break
+
+        markers.sort(key=lambda item: (item.page_number, item.bbox[1], item.bbox[0]))
+        return markers
 
 
-def build_worksheet_ranges(candidates: list[WorksheetCandidate], total_pages: int) -> list[WorksheetRange]:
+def detect_worksheet_candidates(pdf_path: Path) -> list[WorksheetCandidate]:
+    """Returns worksheet candidates for backwards compatibility."""
+    boundaries = detect_all_boundaries(pdf_path)
+    candidates: list[WorksheetCandidate] = []
+    for b in boundaries:
+        if b.kind == "worksheet":
+            candidates.append(
+                WorksheetCandidate(
+                    worksheet_name=b.name,
+                    page_number=b.page_number,
+                    trigger_text=b.trigger_text,
+                    bbox=b.bbox,
+                    reason=b.reason,
+                )
+            )
+    return candidates
+
+
+def build_worksheet_ranges(
+    candidates_or_markers: list[WorksheetCandidate | BoundaryMarker],
+    total_pages: int,
+    stop_at_synopsis: bool = True,
+) -> list[WorksheetRange]:
+    """
+    Builds non-overlapping worksheet page ranges.
+    When stop_at_synopsis is True, each worksheet stops before any subsequent Synopsis section starts.
+    """
     ranges: list[WorksheetRange] = []
-    for index, candidate in enumerate(candidates):
-        next_candidate = candidates[index + 1] if index + 1 < len(candidates) else None
-        end_page = next_candidate.page_number - 1 if next_candidate else total_pages
-        end_bbox = next_candidate.bbox if next_candidate and next_candidate.page_number == candidate.page_number else None
+
+    for idx, marker in enumerate(candidates_or_markers):
+        if getattr(marker, "kind", "worksheet") != "worksheet":
+            continue
+
+        # Look forward for the next relevant boundary
+        next_boundary = None
+        for candidate in candidates_or_markers[idx + 1 :]:
+            c_kind = getattr(candidate, "kind", "worksheet")
+            if stop_at_synopsis or c_kind == "worksheet":
+                next_boundary = candidate
+                break
+
+        name = getattr(marker, "worksheet_name", None) or getattr(marker, "name", "WS")
+        start_page = marker.page_number
+
+        if next_boundary is not None:
+            if next_boundary.page_number == start_page:
+                end_page = start_page
+                end_bbox = next_boundary.bbox
+            elif next_boundary.bbox[1] < 250:
+                # Next boundary starts near the top of the subsequent page: exclude that page completely
+                end_page = max(start_page, next_boundary.page_number - 1)
+                end_bbox = None
+            else:
+                # Next boundary starts mid-page: include the page up to the boundary bbox
+                end_page = next_boundary.page_number
+                end_bbox = next_boundary.bbox
+        else:
+            end_page = total_pages
+            end_bbox = None
+
         ranges.append(
             WorksheetRange(
-                worksheet_name=candidate.worksheet_name,
-                start_page=candidate.page_number,
+                worksheet_name=name,
+                start_page=start_page,
                 end_page=end_page,
-                start_bbox=candidate.bbox,
+                start_bbox=marker.bbox,
                 end_bbox=end_bbox,
             )
         )
+
     return ranges

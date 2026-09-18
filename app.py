@@ -107,13 +107,14 @@ def worksheet_info():
     try:
         upload = request.files.get("file")
         valid_pdf(upload)
+        stop_at_synopsis = request.form.get("stop_at_synopsis", "true").lower() == "true"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
             upload.save(in_tmp.name)
             input_path = in_tmp.name
 
         from worksheet_splitter import get_worksheet_info
-        data = get_worksheet_info(Path(input_path))
+        data = get_worksheet_info(Path(input_path), stop_at_synopsis=stop_at_synopsis)
         data["name"] = upload.filename
         return jsonify(data)
     except Exception as error:
@@ -615,13 +616,14 @@ def worksheet_splitter_api():
     try:
         upload = request.files.get("file")
         valid_pdf(upload)
+        stop_at_synopsis = request.form.get("stop_at_synopsis", "true").lower() == "true"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
             upload.save(in_tmp.name)
             input_path = in_tmp.name
 
         from worksheet_splitter import split_pdf_to_zip
-        zip_buf, worksheets = split_pdf_to_zip(Path(input_path))
+        zip_buf, worksheets = split_pdf_to_zip(Path(input_path), stop_at_synopsis=stop_at_synopsis)
         if not worksheets:
             raise ValueError("No worksheet banners (CUQ or WORKSHEET headings) were detected in this PDF.")
 

@@ -9,7 +9,13 @@ import pymupdf as fitz
 
 from .config import WORKSHEET_OUTPUT_DIR
 from .cropper import crop_pages_for_worksheet
-from .detector import build_worksheet_ranges, detect_headings, detect_worksheet_candidates
+from .detector import (
+    WorksheetCandidate,
+    build_worksheet_ranges,
+    detect_all_boundaries,
+    detect_headings,
+    detect_worksheet_candidates,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +42,13 @@ def _resolve_output_path(output_dir: Path, worksheet_name: str) -> Path:
             suffix += 1
 
 
-def get_worksheet_info(pdf_path: Path) -> dict:
+def get_worksheet_info(pdf_path: Path, stop_at_synopsis: bool = True) -> dict:
     """Detects worksheet candidates and returns preview information."""
-    candidates = detect_worksheet_candidates(pdf_path)
+    markers = detect_all_boundaries(pdf_path)
     with fitz.open(pdf_path) as source_doc:
         total_pages = source_doc.page_count
-    
-    ranges = build_worksheet_ranges(candidates, total_pages)
+
+    ranges = build_worksheet_ranges(markers, total_pages, stop_at_synopsis=stop_at_synopsis)
     summary = []
     for r in ranges:
         summary.append({
@@ -58,21 +64,22 @@ def get_worksheet_info(pdf_path: Path) -> dict:
     }
 
 
-def split_pdf_to_zip(pdf_path: Path) -> tuple[io.BytesIO, list[dict]]:
+def split_pdf_to_zip(pdf_path: Path, stop_at_synopsis: bool = True) -> tuple[io.BytesIO, list[dict]]:
     """
     Splits the PDF into individual cropped worksheet PDFs and bundles them
     into an in-memory ZIP archive for instant download.
     """
-    candidates = detect_worksheet_candidates(pdf_path)
-    if not candidates:
+    markers = detect_all_boundaries(pdf_path)
+    has_worksheets = any(m.kind == "worksheet" for m in markers)
+    if not has_worksheets:
         return io.BytesIO(), []
 
     zip_buffer = io.BytesIO()
     worksheets_info = []
 
     with fitz.open(pdf_path) as source_document:
-        worksheet_ranges = build_worksheet_ranges(candidates, source_document.page_count)
-        
+        worksheet_ranges = build_worksheet_ranges(markers, source_document.page_count, stop_at_synopsis=stop_at_synopsis)
+
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             for worksheet_range in worksheet_ranges:
                 start_index = worksheet_range.start_page - 1
@@ -100,18 +107,22 @@ def split_pdf_to_zip(pdf_path: Path) -> tuple[io.BytesIO, list[dict]]:
     return zip_buffer, worksheets_info
 
 
-def split_pdf(pdf_path: Path, output_root: Path | None = None) -> dict:
+def split_pdf(pdf_path: Path, output_root: Path | None = None, stop_at_synopsis: bool = True) -> dict:
     headings = detect_headings(pdf_path)
-    candidates = detect_worksheet_candidates(pdf_path)
+    markers = detect_all_boundaries(pdf_path)
+    candidates = [
+        WorksheetCandidate(m.name, m.page_number, m.trigger_text, m.bbox, m.reason)
+        for m in markers if m.kind == "worksheet"
+    ]
 
     target_root = output_root or WORKSHEET_OUTPUT_DIR
     output_dir = target_root / _safe_name(pdf_path.stem)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     saved_files: list[Path] = []
-    if candidates:
+    if markers:
         with fitz.open(pdf_path) as source_document:
-            worksheet_ranges = build_worksheet_ranges(candidates, source_document.page_count)
+            worksheet_ranges = build_worksheet_ranges(markers, source_document.page_count, stop_at_synopsis=stop_at_synopsis)
             for worksheet_range in worksheet_ranges:
                 start_index = worksheet_range.start_page - 1
                 end_index = worksheet_range.end_page - 1
@@ -137,11 +148,11 @@ def split_pdf(pdf_path: Path, output_root: Path | None = None) -> dict:
     }
 
 
-def split_pdfs(pdf_paths: list[Path], output_root: Path | None = None) -> list[dict]:
+def split_pdfs(pdf_paths: list[Path], output_root: Path | None = None, stop_at_synopsis: bool = True) -> list[dict]:
     results: list[dict] = []
     for pdf_path in pdf_paths:
         try:
-            results.append(split_pdf(pdf_path, output_root=output_root))
+            results.append(split_pdf(pdf_path, output_root=output_root, stop_at_synopsis=stop_at_synopsis))
         except Exception as error:
             logger.exception("Worksheet splitting failed for %s", pdf_path)
             results.append(
@@ -155,3 +166,4 @@ def split_pdfs(pdf_paths: list[Path], output_root: Path | None = None) -> list[d
                 }
             )
     return results
+

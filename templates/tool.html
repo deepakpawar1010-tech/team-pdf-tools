@@ -1089,8 +1089,13 @@
           </div>
         </div>
 
-        <p class="hint" style="line-height: 1.6; margin-top: 14px;">
-          Scans the document for CUQ and Worksheet banners, crops out top header margins, and bundles all worksheets into an organized ZIP archive.
+        <label class="check" style="margin: 14px 0 16px; font-size: 13px; font-weight: 700; color: var(--text);">
+          <input id="stopAtSynopsis" type="checkbox" checked style="accent-color: #9333ea;">
+          Stop worksheets before Synopsis
+        </label>
+
+        <p class="hint" style="line-height: 1.6; margin-top: 10px;">
+          Scans for CUQ and Worksheet banners, automatically trims before any Synopsis theory section, and bundles each worksheet into an organized ZIP archive.
         </p>
         {% else %}
         <p class="hint" style="line-height: 1.6; margin-top: 10px;">
@@ -1583,11 +1588,17 @@
       const removeBtn = $('removeWorksheetFile');
       if (removeBtn) removeBtn.onclick = cleanup;
       const clearBtn = $('clearWorksheetFile');
-      if (clearBtn) clearBtn.onclick = cleanup;
+      const stopAtSynCheck = $('stopAtSynopsis');
+      if (stopAtSynCheck && !stopAtSynCheck._hasListener) {
+        stopAtSynCheck._hasListener = true;
+        stopAtSynCheck.onchange = () => renderWorksheetArea();
+      }
 
       try {
         const form = new FormData();
         form.append('file', file);
+        const stopAtSyn = $('stopAtSynopsis') ? $('stopAtSynopsis').checked : true;
+        form.append('stop_at_synopsis', stopAtSyn ? 'true' : 'false');
         const r = await fetch('/api/worksheet-info', { method: 'POST', body: form });
         if (r.ok) {
           const data = await r.json();
@@ -2066,6 +2077,11 @@
           const rangeVal = $('wordPageRange').value.trim();
           if (rangeVal) form.append('pages', rangeVal);
         }
+      }
+
+      if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
+        const stopAtSyn = $('stopAtSynopsis') ? $('stopAtSynopsis').checked : true;
+        form.append('stop_at_synopsis', stopAtSyn ? 'true' : 'false');
       }
 
       setBusy(true);
