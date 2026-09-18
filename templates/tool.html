@@ -811,6 +811,7 @@
       <a class="{% if tool=='compress' %}active{% endif %}" href="/compress">Compress</a>
       <a class="{% if tool=='pdf-to-word' %}active{% endif %}" href="/pdf-to-word">PDF to Word</a>
       <a class="{% if tool=='word-to-pdf' %}active{% endif %}" href="/word-to-pdf">Word to PDF</a>
+      <a class="{% if tool in ['worksheet-splitter', 'oly-ete-splitter'] %}active{% endif %}" href="/worksheet-splitter">Oly/Ete Splitter</a>
       <a href="/pdf-to-markdown">PDF to Markdown <span class="soon-badge">Soon</span></a>
       <a href="/pdf-to-excel">PDF to Excel <span class="soon-badge">Soon</span></a>
     </nav>
@@ -953,12 +954,46 @@
           </ul>
         </div>
       </div>
+
+      <div id="worksheetArea" class="hidden">
+        <div style="margin-bottom: 24px; display: flex; align-items: flex-start; justify-content: space-between;">
+          <div>
+            <span style="font-size: 11px; font-weight: 800; color: #9333ea; text-transform: uppercase; letter-spacing: 1px;">Olympiad / ETE Splitter</span>
+            <h2 style="font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px;">Oly/Ete Worksheet Splitter</h2>
+          </div>
+          <button id="clearWorksheetFile" class="small-btn" type="button" style="color: #9333ea;">Clear file</button>
+        </div>
+
+        <div id="worksheetFileCard" style="background: white; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px 22px; display: flex; align-items: center; gap: 16px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+          <div style="width: 44px; height: 44px; background: #faf5ff; color: #9333ea; border-radius: 10px; display: grid; place-items: center; font-weight: 900; font-size: 13px; flex-shrink: 0;">WS</div>
+          <div style="flex: 1; min-width: 0;">
+            <div id="worksheetFileName" style="font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);"></div>
+            <div id="worksheetFileMeta" style="font-size: 13px; color: var(--text-muted); margin-top: 4px;"></div>
+          </div>
+          <button id="removeWorksheetFile" class="icon-btn" title="Remove file" type="button" style="border: 0; background: none; font-size: 22px; color: var(--text-muted); cursor: pointer; display: grid; place-items: center;">&times;</button>
+        </div>
+
+        <div id="wsDetectedContainer" style="background: white; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 22px; margin-bottom: 20px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+            <h3 style="font-size: 15px; font-weight: 800; color: var(--text); display: flex; align-items: center; gap: 8px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9333ea" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+              Detected Worksheets
+            </h3>
+            <span id="wsCountBadge" style="font-size: 12px; font-weight: 700; background: #faf5ff; color: #9333ea; border: 1px solid #f3e8ff; padding: 3px 10px; border-radius: 9999px;">Detecting…</span>
+          </div>
+          <div id="wsListGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-bottom: 16px;"></div>
+          <div style="font-size: 13px; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 12px; display: flex; align-items: center; gap: 8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span>Automatically crops headers to the CUQ banner line and creates individual PDFs.</span>
+          </div>
+        </div>
+      </div>
     </main>
 
     <aside class="side">
       <h1>
-        <span style="color: {% if tool in ['pdf-to-word', 'word-to-pdf'] %}#2563eb{% else %}var(--primary){% endif %};">●</span>
-        {% if tool=='pdf-to-word' %}PDF to Word{% elif tool=='word-to-pdf' %}Word to PDF{% else %}{{ tool|title }} PDF{% endif %}
+        <span style="color: {% if tool in ['pdf-to-word', 'word-to-pdf'] %}#2563eb{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}#9333ea{% else %}var(--primary){% endif %};">●</span>
+        {% if tool=='pdf-to-word' %}PDF to Word{% elif tool=='word-to-pdf' %}Word to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Oly/Ete Worksheet Splitter{% else %}{{ tool|title }} PDF{% endif %}
       </h1>
 
       <div class="side-content">
@@ -1044,6 +1079,19 @@
         <p class="hint" style="line-height: 1.6; margin-top: 14px;">
           Converts Microsoft Word (.docx) documents directly into standardized, print-ready PDF files with fonts, tables, and images preserved.
         </p>
+        {% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}
+        <label class="field-label">Tool Output</label>
+        <div style="background: white; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; gap: 10px; margin-bottom: 18px;">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: #faf5ff; color: #9333ea; display: grid; place-items: center; font-weight: 800; font-size: 11px;">ZIP</div>
+          <div>
+            <div style="font-size: 13.5px; font-weight: 700; color: var(--text);">Worksheets Archive (.zip)</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Individual cropped worksheet PDFs</div>
+          </div>
+        </div>
+
+        <p class="hint" style="line-height: 1.6; margin-top: 14px;">
+          Scans the document for CUQ and Worksheet banners, crops out top header margins, and bundles all worksheets into an organized ZIP archive.
+        </p>
         {% else %}
         <p class="hint" style="line-height: 1.6; margin-top: 10px;">
           Upload multiple PDF documents. Drag and drop the thumbnail cards on the left to reorder them before merging.
@@ -1051,8 +1099,8 @@
         {% endif %}
       </div>
 
-      <button id="submit" class="primary" {% if tool in ['pdf-to-word', 'word-to-pdf'] %}style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);"{% endif %}>
-        <span>{% if tool=='pdf-to-word' %}Convert to Word (.docx){% elif tool=='word-to-pdf' %}Convert to PDF (.pdf){% else %}{{ tool|title }} PDF{% endif %}</span>
+      <button id="submit" class="primary" {% if tool in ['pdf-to-word', 'word-to-pdf'] %}style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);"{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}style="background: linear-gradient(135deg, #9333ea 0%, #a855f7 100%); box-shadow: 0 4px 14px rgba(147, 51, 234, 0.3);"{% endif %}>
+        <span>{% if tool=='pdf-to-word' %}Convert to Word (.docx){% elif tool=='word-to-pdf' %}Convert to PDF (.pdf){% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Split Worksheets (.zip){% else %}{{ tool|title }} PDF{% endif %}</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>
       </button>
       <p id="message" class="message"></p>
@@ -1099,7 +1147,7 @@
       if (v) {
         $('submit').innerHTML = '<span>Processing…</span>';
       } else {
-        const label = mode === 'pdf-to-word' ? 'Convert to Word (.docx)' : mode === 'word-to-pdf' ? 'Convert to PDF (.pdf)' : `${mode[0].toUpperCase() + mode.slice(1)} PDF`;
+        const label = mode === 'pdf-to-word' ? 'Convert to Word (.docx)' : mode === 'word-to-pdf' ? 'Convert to PDF (.pdf)' : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Split Worksheets (.zip)' : `${mode[0].toUpperCase() + mode.slice(1)} PDF`;
         $('submit').innerHTML = `<span>${label}</span> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>`;
       }
     }
@@ -1112,6 +1160,9 @@
       $('compressArea').classList.toggle('hidden', mode !== 'compress' || !has);
       $('wordArea').classList.toggle('hidden', mode !== 'pdf-to-word' || !has);
       $('wordToPdfArea').classList.toggle('hidden', mode !== 'word-to-pdf' || !has);
+      if ($('worksheetArea')) {
+        $('worksheetArea').classList.toggle('hidden', (mode !== 'worksheet-splitter' && mode !== 'oly-ete-splitter') || !has);
+      }
     }
 
     // --- On-Demand Thumbnail Pipeline & Lazy Renderer ---
@@ -1313,6 +1364,19 @@
         }
       }
 
+      // In Worksheet Splitter Mode: Fast analysis and candidate detection
+      if ((mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') && state.files.length > 0) {
+        try {
+          renderWorksheetArea();
+          show('');
+          updateAreas();
+          setBusy(false);
+          return;
+        } catch (e) {
+          console.warn('Worksheet splitter fast load fallback:', e);
+        }
+      }
+
       // In Split Mode: Instant on-demand lazy loading engine (< 1s load)
       if (mode === 'split' && window.pdfjsLib && state.files.length > 0) {
         try {
@@ -1503,6 +1567,66 @@
       if (removeBtn) removeBtn.onclick = cleanup;
       const clearBtn = $('clearWordToPdfFile');
       if (clearBtn) clearBtn.onclick = cleanup;
+    }
+
+    async function renderWorksheetArea() {
+      if (!state.files.length) return;
+      const file = state.files[0];
+      if ($('worksheetFileName')) $('worksheetFileName').textContent = file.name;
+      if ($('worksheetFileMeta')) $('worksheetFileMeta').textContent = `Analyzing… • ${bytes(file.size)}`;
+
+      const cleanup = () => {
+        state.files = [];
+        state.fileBytes = null;
+        updateAreas();
+      };
+      const removeBtn = $('removeWorksheetFile');
+      if (removeBtn) removeBtn.onclick = cleanup;
+      const clearBtn = $('clearWorksheetFile');
+      if (clearBtn) clearBtn.onclick = cleanup;
+
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        const r = await fetch('/api/worksheet-info', { method: 'POST', body: form });
+        if (r.ok) {
+          const data = await r.json();
+          state.pageCount = data.total_pages;
+          if ($('worksheetFileMeta')) $('worksheetFileMeta').textContent = `${data.total_pages} pages • ${bytes(file.size)}`;
+          renderWorksheetList(data.worksheets || []);
+        } else {
+          renderWorksheetList([]);
+        }
+      } catch (err) {
+        console.warn('Could not fetch worksheet info:', err);
+        renderWorksheetList([]);
+      }
+    }
+
+    function renderWorksheetList(worksheets) {
+      const container = $('wsListGrid');
+      const badge = $('wsCountBadge');
+      if (!container || !badge) return;
+      container.innerHTML = '';
+      badge.textContent = `${worksheets.length} Worksheets Found`;
+      if (!worksheets.length) {
+        container.innerHTML = `<div style="grid-column: 1 / -1; padding: 12px 16px; background: #faf5ff; border-radius: 8px; color: #6b21a8; font-size: 13.5px; border: 1px dashed #d8b4fe;">
+          ℹ️ Ready to process. The splitter will scan for CUQ and Worksheet banners to generate individual PDF worksheets.
+        </div>`;
+        return;
+      }
+      worksheets.forEach(ws => {
+        const card = document.createElement('div');
+        card.style.cssText = 'background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 8px; padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.02);';
+        card.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 800; color: #9333ea; font-size: 13px;">${escapeHtml(ws.name)}</span>
+            <span style="font-size: 11px; background: #f3e8ff; color: #7e22ce; padding: 2px 7px; border-radius: 4px; font-weight: 700;">${ws.page_count} pg</span>
+          </div>
+          <span style="font-size: 12px; color: #6b21a8;">Pages ${ws.start_page} &rarr; ${ws.end_page}</span>
+        `;
+        container.appendChild(card);
+      });
     }
 
     function renderFiles() {
@@ -2055,6 +2179,8 @@
         show('Converting Word to PDF… this may take a moment.');
       } else if (mode === 'compress') {
         show('Compressing pages… this may take a moment for large files.');
+      } else if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
+        show('Splitting worksheets and packaging into ZIP archive…');
       } else {
         show('Processing PDF…');
       }
@@ -2081,6 +2207,7 @@
         const blob = await r.blob();
         let name = mode === 'pdf-to-word' ? (state.files[0].name.replace(/\.pdf$/i, '') + '-converted.docx')
                  : mode === 'word-to-pdf' ? (state.files[0].name.replace(/\.(docx|doc)$/i, '') + '-converted.pdf')
+                 : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? (state.files[0].name.replace(/\.pdf$/i, '') + '-worksheets.zip')
                  : mode + '.pdf';
         const cd = r.headers.get('Content-Disposition');
         const m = cd && cd.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
@@ -2092,7 +2219,7 @@
         a.download = name;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        show(mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' : mode === 'word-to-pdf' ? 'Done! PDF document downloaded.' : mode === 'compress' ? 'Done! Compressed PDF downloaded.' : 'Done! Your download has started.', false, true);
+        show(mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' : mode === 'word-to-pdf' ? 'Done! PDF document downloaded.' : mode === 'compress' ? 'Done! Compressed PDF downloaded.' : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Done! All split worksheets downloaded as ZIP.' : 'Done! Your download has started.', false, true);
       } catch (e) {
         show(e.message || (mode === 'word-to-pdf' ? 'Could not convert Word document.' : 'Could not process PDF.'), true);
       } finally {

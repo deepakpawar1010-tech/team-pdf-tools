@@ -83,7 +83,7 @@ COMING_SOON = {
 
 @app.get("/<tool>")
 def tool_page(tool: str):
-    if tool in {"merge", "split", "compress", "pdf-to-word", "word-to-pdf"}:
+    if tool in {"merge", "split", "compress", "pdf-to-word", "word-to-pdf", "worksheet-splitter", "oly-ete-splitter"}:
         return render_template("tool.html", tool=tool)
     if tool in COMING_SOON:
         return render_template("coming_soon.html", tool=tool, info=COMING_SOON[tool])
@@ -99,6 +99,31 @@ def info():
         return jsonify({"pages": len(reader.pages), "name": upload.filename})
     except Exception as error:
         return jsonify({"error": str(error)}), 400
+
+
+@app.post("/api/worksheet-info")
+def worksheet_info():
+    input_path = None
+    try:
+        upload = request.files.get("file")
+        valid_pdf(upload)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
+            upload.save(in_tmp.name)
+            input_path = in_tmp.name
+
+        from worksheet_splitter import get_worksheet_info
+        data = get_worksheet_info(Path(input_path))
+        data["name"] = upload.filename
+        return jsonify(data)
+    except Exception as error:
+        return jsonify({"error": str(error)}), 400
+    finally:
+        if input_path and os.path.exists(input_path):
+            try:
+                os.remove(input_path)
+            except Exception:
+                pass
 
 
 @app.post("/api/previews")
@@ -581,6 +606,41 @@ def word_to_pdf():
             except Exception:
                 pass
         return jsonify({"error": str(error)}), 400
+
+
+@app.post("/api/worksheet-splitter")
+@app.post("/api/oly-ete-splitter")
+def worksheet_splitter_api():
+    input_path = None
+    try:
+        upload = request.files.get("file")
+        valid_pdf(upload)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
+            upload.save(in_tmp.name)
+            input_path = in_tmp.name
+
+        from worksheet_splitter import split_pdf_to_zip
+        zip_buf, worksheets = split_pdf_to_zip(Path(input_path))
+        if not worksheets:
+            raise ValueError("No worksheet banners (CUQ or WORKSHEET headings) were detected in this PDF.")
+
+        gc.collect()
+
+        return send_file(
+            zip_buf,
+            as_attachment=True,
+            download_name=output_name(upload.filename, "worksheets").replace(".pdf", ".zip"),
+            mimetype="application/zip"
+        )
+    except Exception as error:
+        return jsonify({"error": str(error)}), 400
+    finally:
+        if input_path and os.path.exists(input_path):
+            try:
+                os.remove(input_path)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
