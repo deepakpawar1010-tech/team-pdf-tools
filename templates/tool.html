@@ -1624,6 +1624,7 @@
       if (olyBtn && !olyBtn._hasListener) {
         olyBtn._hasListener = true;
         olyBtn.onclick = () => {
+          state._presetManuallySelected = true;
           state.worksheetPreset = 'olympiad';
           olyBtn.classList.add('active');
           if (sscBtn) sscBtn.classList.remove('active');
@@ -1640,6 +1641,7 @@
       if (sscBtn && !sscBtn._hasListener) {
         sscBtn._hasListener = true;
         sscBtn.onclick = () => {
+          state._presetManuallySelected = true;
           state.worksheetPreset = 'ssc';
           sscBtn.classList.add('active');
           if (olyBtn) olyBtn.classList.remove('active');
@@ -1656,6 +1658,7 @@
       if (cbseBtn && !cbseBtn._hasListener) {
         cbseBtn._hasListener = true;
         cbseBtn.onclick = () => {
+          state._presetManuallySelected = true;
           state.worksheetPreset = 'cbse';
           cbseBtn.classList.add('active');
           if (olyBtn) olyBtn.classList.remove('active');
@@ -1680,6 +1683,39 @@
     async function renderWorksheetArea() {
       initWorksheetPresetControls();
       if (!state.files.length) return;
+
+      // Smart auto-detection if preset was not explicitly picked
+      if (!state._presetManuallySelected && state.files.length) {
+        const hasCbse = state.files.some(f => /cbse/i.test(f.name));
+        const hasSsc = state.files.some(f => /(?:ssc|ap_|ts_)/i.test(f.name));
+        const olyBtn = $('presetOlympiad');
+        const sscBtn = $('presetSSC');
+        const cbseBtn = $('presetCBSE');
+        const olyOpts = $('olympiadOptions');
+        const sscOpts = $('sscOptions');
+        const cbseOpts = $('cbseOptions');
+        if (hasCbse && cbseBtn) {
+          state.worksheetPreset = 'cbse';
+          cbseBtn.classList.add('active');
+          if (olyBtn) olyBtn.classList.remove('active');
+          if (sscBtn) sscBtn.classList.remove('active');
+          if (cbseOpts) cbseOpts.classList.remove('hidden');
+          if (olyOpts) olyOpts.classList.add('hidden');
+          if (sscOpts) sscOpts.classList.add('hidden');
+          if ($('wsCategoryTag')) $('wsCategoryTag').textContent = 'CBSE Splitter (Maths, Physics, Chemistry)';
+          if ($('wsFooterNoteText')) $('wsFooterNoteText').textContent = 'Extracts Assessment Sheets 1 & 2, Objective Exercises, and MCQs with answer keys, skipping subjective answers.';
+        } else if (hasSsc && sscBtn) {
+          state.worksheetPreset = 'ssc';
+          sscBtn.classList.add('active');
+          if (olyBtn) olyBtn.classList.remove('active');
+          if (cbseBtn) cbseBtn.classList.remove('active');
+          if (sscOpts) sscOpts.classList.remove('hidden');
+          if (olyOpts) olyOpts.classList.add('hidden');
+          if (cbseOpts) cbseOpts.classList.add('hidden');
+          if ($('wsCategoryTag')) $('wsCategoryTag').textContent = 'AP & TS SSC MCQ Splitter';
+          if ($('wsFooterNoteText')) $('wsFooterNoteText').textContent = 'Extracts Multiple Choice Questions up to Answer Key, cropping out preceding exercises.';
+        }
+      }
 
       const addBtn = $('addMoreWorksheetFiles');
       if (addBtn && !addBtn._hasListener) {

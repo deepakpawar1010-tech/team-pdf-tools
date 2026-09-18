@@ -626,6 +626,14 @@ def worksheet_info_api():
             raise ValueError("Please upload at least one PDF file.")
 
         preset = request.form.get("preset", "olympiad").lower()
+        if preset == "olympiad":
+            any_cbse = any("cbse" in (u.filename or "").lower() for u in uploads)
+            any_ssc = any(("ssc" in (u.filename or "").lower() or "ap_" in (u.filename or "").lower() or "ts_" in (u.filename or "").lower()) for u in uploads)
+            if any_cbse:
+                preset = "cbse"
+            elif any_ssc:
+                preset = "ssc"
+
         stop_at_synopsis = request.form.get("stop_at_synopsis", "true").lower() == "true"
         include_key = request.form.get("include_key", "true").lower() == "true"
 
@@ -685,6 +693,14 @@ def worksheet_splitter_api():
             raise ValueError("Please upload at least one PDF file.")
 
         preset = request.form.get("preset", "olympiad").lower()
+        if preset == "olympiad":
+            any_cbse = any("cbse" in (u.filename or "").lower() for u in uploads)
+            any_ssc = any(("ssc" in (u.filename or "").lower() or "ap_" in (u.filename or "").lower() or "ts_" in (u.filename or "").lower()) for u in uploads)
+            if any_cbse:
+                preset = "cbse"
+            elif any_ssc:
+                preset = "ssc"
+
         stop_at_synopsis = request.form.get("stop_at_synopsis", "true").lower() == "true"
         include_key = request.form.get("include_key", "true").lower() == "true"
         crop_top = request.form.get("crop_top", "true").lower() == "true"
@@ -705,6 +721,18 @@ def worksheet_splitter_api():
             include_key=include_key,
             crop_top=crop_top,
         )
+        if not worksheets and preset == "olympiad":
+            # Fallback to CBSE in case user did not switch tab
+            zip_buf, worksheets = split_pdfs_to_zip(
+                pdf_inputs,
+                stop_at_synopsis=stop_at_synopsis,
+                preset="cbse",
+                include_key=include_key,
+                crop_top=crop_top,
+            )
+            if worksheets:
+                preset = "cbse"
+
         if not worksheets:
             if preset == "ssc":
                 raise ValueError("No Multiple Choice Questions (MCQs) or Objective Question sections were detected.")

@@ -1,7 +1,7 @@
-from __future__ import annotations
-
+import hashlib
 import io
 import logging
+import time
 import zipfile
 from pathlib import Path
 
@@ -18,6 +18,42 @@ from .detector import (
 )
 
 logger = logging.getLogger(__name__)
+
+_DETECTION_CACHE: dict[tuple, tuple[float, list, list]] = {}
+
+
+def _compute_fast_pdf_sig(pdf_path: Path) -> str:
+    try:
+        sz = pdf_path.stat().st_size
+        with open(pdf_path, "rb") as f:
+            head = f.read(4096)
+            if sz > 8192:
+                f.seek(sz - 4096)
+                tail = f.read(4096)
+            else:
+                tail = b""
+        return hashlib.md5(head + tail + str(sz).encode()).hexdigest()
+    except Exception:
+        return f"{pdf_path.name}_{pdf_path.stat().st_size}"
+
+
+def _get_cached_detection(sig: str, preset: str, stop_at_synopsis: bool, include_key: bool):
+    key = (sig, preset, stop_at_synopsis, include_key)
+    now = time.time()
+    if key in _DETECTION_CACHE:
+        ts, markers, ranges = _DETECTION_CACHE[key]
+        if now - ts < 600:
+            return markers, ranges
+    return None
+
+
+def _set_cached_detection(sig: str, preset: str, stop_at_synopsis: bool, include_key: bool, markers, ranges):
+    key = (sig, preset, stop_at_synopsis, include_key)
+    now = time.time()
+    for k in list(_DETECTION_CACHE.keys()):
+        if now - _DETECTION_CACHE[k][0] > 600:
+            del _DETECTION_CACHE[k]
+    _DETECTION_CACHE[key] = (now, markers, ranges)
 
 
 def _safe_name(name: str) -> str:
@@ -48,18 +84,27 @@ def get_worksheet_info(
     preset: str = "olympiad",
     include_key: bool = True,
 ) -> dict:
-    """Detects worksheet candidates and returns preview information."""
-    markers = detect_all_boundaries(pdf_path, preset=preset)
-    with fitz.open(pdf_path) as source_doc:
-        total_pages = source_doc.page_count
+    """Detects worksheet candidates and returns preview information with caching."""
+    sig = _compute_fast_pdf_sig(pdf_path)
+    cached = _get_cached_detection(sig, preset, stop_at_synopsis, include_key)
+    if cached is not None:
+        markers, ranges = cached
+        with fitz.open(pdf_path) as source_doc:
+            total_pages = source_doc.page_count
+    else:
+        markers = detect_all_boundaries(pdf_path, preset=preset)
+        with fitz.open(pdf_path) as source_doc:
+            total_pages = source_doc.page_count
 
-    ranges = build_worksheet_ranges(
-        markers,
-        total_pages,
-        stop_at_synopsis=stop_at_synopsis,
-        preset=preset,
-        include_key=include_key,
-    )
+        ranges = build_worksheet_ranges(
+            markers,
+            total_pages,
+            stop_at_synopsis=stop_at_synopsis,
+            preset=preset,
+            include_key=include_key,
+        )
+        _set_cached_detection(sig, preset, stop_at_synopsis, include_key, markers, ranges)
+
     summary = []
     for r in ranges:
         extra = getattr(r, "extra_pages", ())
@@ -106,6 +151,7 @@ def split_pdfs_to_zip(
     """
     Splits one or more PDFs into individual cropped worksheet PDFs and bundles
     them into a single consolidated in-memory ZIP archive for instant download.
+    Re-uses detection cache computed during info preview for sub-second splitting.
     """
     zip_buffer = io.BytesIO()
     all_worksheets_info: list[dict] = []
@@ -114,20 +160,27 @@ def split_pdfs_to_zip(
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         for orig_name, pdf_path in pdf_inputs:
             doc_stem = _safe_name(Path(orig_name).stem)
-            markers = detect_all_boundaries(pdf_path, preset=preset)
+            sig = _compute_fast_pdf_sig(pdf_path)
+            cached = _get_cached_detection(sig, preset, stop_at_synopsis, include_key)
+            if cached is not None:
+                markers, worksheet_ranges = cached
+            else:
+                markers = detect_all_boundaries(pdf_path, preset=preset)
+                with fitz.open(pdf_path) as source_doc:
+                    worksheet_ranges = build_worksheet_ranges(
+                        markers,
+                        source_doc.page_count,
+                        stop_at_synopsis=stop_at_synopsis,
+                        preset=preset,
+                        include_key=include_key,
+                    )
+                _set_cached_detection(sig, preset, stop_at_synopsis, include_key, markers, worksheet_ranges)
+
             has_worksheets = any(m.kind == "worksheet" for m in markers)
             if not has_worksheets:
                 continue
 
             with fitz.open(pdf_path) as source_document:
-                worksheet_ranges = build_worksheet_ranges(
-                    markers,
-                    source_document.page_count,
-                    stop_at_synopsis=stop_at_synopsis,
-                    preset=preset,
-                    include_key=include_key,
-                )
-
                 for worksheet_range in worksheet_ranges:
                     start_index = worksheet_range.start_page - 1
                     end_index = worksheet_range.end_page - 1
@@ -143,7 +196,7 @@ def split_pdfs_to_zip(
                         if 0 <= ep_idx < source_document.page_count:
                             ws_doc.insert_pdf(source_document, from_page=ep_idx, to_page=ep_idx)
 
-                    pdf_bytes = ws_doc.tobytes(garbage=3, deflate=True)
+                    pdf_bytes = ws_doc.tobytes(garbage=1, deflate=True)
                     ws_doc.close()
 
                     if multi_file:
