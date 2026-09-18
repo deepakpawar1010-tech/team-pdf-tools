@@ -26,5 +26,5 @@ COPY . .
 
 EXPOSE 5050
 
-# Run with Gunicorn using dynamic PORT
-CMD exec gunicorn app:app --bind 0.0.0.0:${PORT:-5050} --workers 2 --threads 4 --timeout 300
+# Run with Gunicorn using dynamic PORT (single worker with threads to maximize RAM on 512MB cloud instances)
+CMD exec gunicorn app:app --bind 0.0.0.0:${PORT:-5050} --workers 1 --threads 8 --timeout 300

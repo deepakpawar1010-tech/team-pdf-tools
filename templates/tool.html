@@ -2064,7 +2064,9 @@
         if (!r.ok) {
           let err = `Server returned error (${r.status})`;
           if (r.status === 413) {
-            err = 'File exceeds upload limit (413: Request Entity Too Large). Vercel limits uploads to 4.5 MB; use Render for large PDF files.';
+            err = 'File exceeds upload limit (413: Request Entity Too Large).';
+          } else if (r.status === 502 || r.status === 504) {
+            err = 'The cloud server timed out (502/504). For large PDFs (like 39 pages), please convert in page batches using "Custom Range" (e.g. 1-10, 11-20) or use your local server.';
           } else {
             try {
               const d = await r.json();
