@@ -617,25 +617,89 @@ def word_to_pdf():
 
 
 
+@app.post("/api/worksheet-info")
+def worksheet_info_api():
+    temp_files: list[str] = []
+    try:
+        uploads = request.files.getlist("files") or request.files.getlist("file") or ([request.files.get("file")] if request.files.get("file") else [])
+        if not uploads:
+            raise ValueError("Please upload at least one PDF file.")
+
+        preset = request.form.get("preset", "olympiad").lower()
+        stop_at_synopsis = request.form.get("stop_at_synopsis", "true").lower() == "true"
+        include_key = request.form.get("include_key", "true").lower() == "true"
+
+        from worksheet_splitter import get_worksheet_info
+
+        results = []
+        aggregate_pages = 0
+        all_worksheets = []
+
+        for upload in uploads:
+            valid_pdf(upload)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
+                upload.save(in_tmp.name)
+                temp_files.append(in_tmp.name)
+
+            info = get_worksheet_info(
+                Path(in_tmp.name),
+                stop_at_synopsis=stop_at_synopsis,
+                preset=preset,
+                include_key=include_key,
+            )
+            aggregate_pages += info["total_pages"]
+            results.append({
+                "filename": upload.filename,
+                "total_pages": info["total_pages"],
+                "worksheets": info["worksheets"],
+            })
+            for ws in info["worksheets"]:
+                ws_copy = dict(ws)
+                ws_copy["source_file"] = upload.filename
+                all_worksheets.append(ws_copy)
+
+        return jsonify({
+            "total_files": len(uploads),
+            "total_pages": aggregate_pages,
+            "worksheets": all_worksheets,
+            "files": results,
+        })
+    except Exception as error:
+        return jsonify({"error": str(error)}), 400
+    finally:
+        for tf in temp_files:
+            if tf and os.path.exists(tf):
+                try:
+                    os.remove(tf)
+                except Exception:
+                    pass
+
+
 @app.post("/api/worksheet-splitter")
 @app.post("/api/oly-ete-splitter")
 def worksheet_splitter_api():
-    input_path = None
+    temp_files: list[str] = []
     try:
-        upload = request.files.get("file")
-        valid_pdf(upload)
+        uploads = request.files.getlist("files") or request.files.getlist("file") or ([request.files.get("file")] if request.files.get("file") else [])
+        if not uploads:
+            raise ValueError("Please upload at least one PDF file.")
+
         preset = request.form.get("preset", "olympiad").lower()
         stop_at_synopsis = request.form.get("stop_at_synopsis", "true").lower() == "true"
         include_key = request.form.get("include_key", "true").lower() == "true"
         crop_top = request.form.get("crop_top", "true").lower() == "true"
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
-            upload.save(in_tmp.name)
-            input_path = in_tmp.name
+        pdf_inputs: list[tuple[str, Path]] = []
+        for upload in uploads:
+            valid_pdf(upload)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
+                upload.save(in_tmp.name)
+                temp_files.append(in_tmp.name)
+                pdf_inputs.append((upload.filename, Path(in_tmp.name)))
 
-        from worksheet_splitter import split_pdf_to_zip
-        zip_buf, worksheets = split_pdf_to_zip(
-            Path(input_path),
+        from worksheet_splitter import split_pdfs_to_zip
+        zip_buf, worksheets = split_pdfs_to_zip(
+            pdf_inputs,
             stop_at_synopsis=stop_at_synopsis,
             preset=preset,
             include_key=include_key,
@@ -643,27 +707,35 @@ def worksheet_splitter_api():
         )
         if not worksheets:
             if preset == "ssc":
-                raise ValueError("No Multiple Choice Questions (MCQs) or Objective Question sections were detected in this PDF.")
+                raise ValueError("No Multiple Choice Questions (MCQs) or Objective Question sections were detected.")
+            elif preset == "cbse":
+                raise ValueError("No CBSE Objective Exercises, Assessment Sheets, or Multiple Choice Questions were detected.")
             else:
-                raise ValueError("No worksheet banners (CUQ or WORKSHEET headings) were detected in this PDF.")
+                raise ValueError("No worksheet banners (CUQ or WORKSHEET headings) were detected.")
 
         gc.collect()
 
-        suffix = "mcqs" if preset == "ssc" else "worksheets"
+        suffix = "cbse-sheets" if preset == "cbse" else ("mcqs" if preset == "ssc" else "worksheets")
+        if len(uploads) == 1:
+            dl_name = output_name(uploads[0].filename, suffix).replace(".pdf", ".zip")
+        else:
+            dl_name = f"split_{suffix}_bundle.zip"
+
         return send_file(
             zip_buf,
             as_attachment=True,
-            download_name=output_name(upload.filename, suffix).replace(".pdf", ".zip"),
+            download_name=dl_name,
             mimetype="application/zip"
         )
     except Exception as error:
         return jsonify({"error": str(error)}), 400
     finally:
-        if input_path and os.path.exists(input_path):
-            try:
-                os.remove(input_path)
-            except Exception:
-                pass
+        for tf in temp_files:
+            if tf and os.path.exists(tf):
+                try:
+                    os.remove(tf)
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":

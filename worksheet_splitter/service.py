@@ -62,11 +62,15 @@ def get_worksheet_info(
     )
     summary = []
     for r in ranges:
+        extra = getattr(r, "extra_pages", ())
+        base_count = max(1, r.end_page - r.start_page + 1)
+        total_count = base_count + len(extra)
         summary.append({
             "name": r.worksheet_name,
             "start_page": r.start_page,
             "end_page": r.end_page,
-            "page_count": max(1, r.end_page - r.start_page + 1)
+            "extra_pages": list(extra),
+            "page_count": total_count
         })
     return {
         "total_pages": total_pages,
@@ -82,52 +86,91 @@ def split_pdf_to_zip(
     include_key: bool = True,
     crop_top: bool = True,
 ) -> tuple[io.BytesIO, list[dict]]:
-    """
-    Splits the PDF into individual cropped worksheet PDFs and bundles them
-    into an in-memory ZIP archive for instant download.
-    """
-    markers = detect_all_boundaries(pdf_path, preset=preset)
-    has_worksheets = any(m.kind == "worksheet" for m in markers)
-    if not has_worksheets:
-        return io.BytesIO(), []
+    """Splits a single PDF into individual cropped worksheet PDFs inside an in-memory ZIP."""
+    return split_pdfs_to_zip(
+        [(pdf_path.name, pdf_path)],
+        stop_at_synopsis=stop_at_synopsis,
+        preset=preset,
+        include_key=include_key,
+        crop_top=crop_top,
+    )
 
+
+def split_pdfs_to_zip(
+    pdf_inputs: list[tuple[str, Path]],
+    stop_at_synopsis: bool = True,
+    preset: str = "olympiad",
+    include_key: bool = True,
+    crop_top: bool = True,
+) -> tuple[io.BytesIO, list[dict]]:
+    """
+    Splits one or more PDFs into individual cropped worksheet PDFs and bundles
+    them into a single consolidated in-memory ZIP archive for instant download.
+    """
     zip_buffer = io.BytesIO()
-    worksheets_info = []
+    all_worksheets_info: list[dict] = []
+    multi_file = len(pdf_inputs) > 1
 
-    with fitz.open(pdf_path) as source_document:
-        worksheet_ranges = build_worksheet_ranges(
-            markers,
-            source_document.page_count,
-            stop_at_synopsis=stop_at_synopsis,
-            preset=preset,
-            include_key=include_key,
-        )
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for orig_name, pdf_path in pdf_inputs:
+            doc_stem = _safe_name(Path(orig_name).stem)
+            markers = detect_all_boundaries(pdf_path, preset=preset)
+            has_worksheets = any(m.kind == "worksheet" for m in markers)
+            if not has_worksheets:
+                continue
 
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            for worksheet_range in worksheet_ranges:
-                start_index = worksheet_range.start_page - 1
-                end_index = worksheet_range.end_page - 1
-                if end_index < start_index:
-                    continue
+            with fitz.open(pdf_path) as source_document:
+                worksheet_ranges = build_worksheet_ranges(
+                    markers,
+                    source_document.page_count,
+                    stop_at_synopsis=stop_at_synopsis,
+                    preset=preset,
+                    include_key=include_key,
+                )
 
-                ws_doc = fitz.open()
-                ws_doc.insert_pdf(source_document, from_page=start_index, to_page=end_index)
-                crop_pages_for_worksheet(ws_doc, worksheet_range, preset=preset, crop_top=crop_top)
+                for worksheet_range in worksheet_ranges:
+                    start_index = worksheet_range.start_page - 1
+                    end_index = worksheet_range.end_page - 1
+                    if end_index < start_index:
+                        continue
 
-                pdf_bytes = ws_doc.tobytes(garbage=3, deflate=True)
-                ws_doc.close()
+                    ws_doc = fitz.open()
+                    ws_doc.insert_pdf(source_document, from_page=start_index, to_page=end_index)
+                    crop_pages_for_worksheet(ws_doc, worksheet_range, preset=preset, crop_top=crop_top)
 
-                filename = f"{worksheet_range.worksheet_name}.pdf"
-                zip_file.writestr(filename, pdf_bytes)
+                    for ep in getattr(worksheet_range, "extra_pages", ()):
+                        ep_idx = ep - 1
+                        if 0 <= ep_idx < source_document.page_count:
+                            ws_doc.insert_pdf(source_document, from_page=ep_idx, to_page=ep_idx)
 
-                worksheets_info.append({
-                    "filename": filename,
-                    "start_page": worksheet_range.start_page,
-                    "end_page": worksheet_range.end_page
-                })
+                    pdf_bytes = ws_doc.tobytes(garbage=3, deflate=True)
+                    ws_doc.close()
+
+                    if multi_file:
+                        filename = f"{doc_stem}_{worksheet_range.worksheet_name}.pdf"
+                    else:
+                        filename = f"{worksheet_range.worksheet_name}.pdf"
+
+                    existing_names = set(zip_file.namelist())
+                    counter = 1
+                    base_filename = filename
+                    while filename in existing_names:
+                        stem = base_filename[:-4]
+                        filename = f"{stem}_{counter}.pdf"
+                        counter += 1
+
+                    zip_file.writestr(filename, pdf_bytes)
+
+                    all_worksheets_info.append({
+                        "source_file": orig_name,
+                        "filename": filename,
+                        "start_page": worksheet_range.start_page,
+                        "end_page": worksheet_range.end_page,
+                        "extra_pages": list(getattr(worksheet_range, "extra_pages", ())),
+                    })
 
     zip_buffer.seek(0)
-    return zip_buffer, worksheets_info
+    return zip_buffer, all_worksheets_info
 
 
 def split_pdf(
@@ -168,6 +211,11 @@ def split_pdf(
                 worksheet_document = fitz.open()
                 worksheet_document.insert_pdf(source_document, from_page=start_index, to_page=end_index)
                 crop_pages_for_worksheet(worksheet_document, worksheet_range, preset=preset, crop_top=crop_top)
+
+                for ep in getattr(worksheet_range, "extra_pages", ()):
+                    ep_idx = ep - 1
+                    if 0 <= ep_idx < source_document.page_count:
+                        worksheet_document.insert_pdf(source_document, from_page=ep_idx, to_page=ep_idx)
 
                 output_path = _resolve_output_path(output_dir, worksheet_range.worksheet_name)
                 worksheet_document.save(output_path, garbage=3, deflate=True)

@@ -19,9 +19,9 @@ def crop_pages_for_worksheet(
     first_page_rect = first_page.rect
 
     if crop_top:
-        if preset == "ssc":
-            # In SSC mode: if the objective banner is mid-page (e.g. y > 120), crop from start_bbox[1] - 16.0
-            # This cleanly removes subjective exercises above the MCQ banner (like Exercise 11.3 on TS SSC)
+        if preset in {"ssc", "cbse"}:
+            # In SSC / CBSE mode: if the objective banner is mid-page (e.g. y > 120), crop from start_bbox[1] - 16.0
+            # This cleanly removes subjective exercises above the MCQ banner (like Exercise 11.3 on TS SSC or Assessment Sheets on CBSE)
             if worksheet_range.start_bbox[1] > 120.0:
                 first_page_top = max(0.0, worksheet_range.start_bbox[1] - 16.0)
                 first_page.set_cropbox(fitz.Rect(0, first_page_top, first_page_rect.width, first_page_rect.height))
