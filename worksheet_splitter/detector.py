@@ -521,13 +521,31 @@ def detect_cbse_boundaries(pdf_path: Path) -> list[BoundaryMarker]:
             markers.sort(key=lambda item: (item.page_number, item.bbox[1], item.bbox[0]))
             return markers
 
-        # Mode B: Vector drawings / Image banners (Print to PDF e.g. Chemistry Class 6, Physics, Maths)
-        # Pass 1: Instant Vector Check across scan pages (< 0.05s)
+        # Mode B: Vector drawings (Print to PDF e.g. Chemistry Class 6, Maths Class 6)
         green_sheets = []
         blue_key_page = None
+        blue_key_bbox = None
+        red_headings = []
+        key_table_page = None
+        key_table_bbox = None
+
         for pno in range(start_scan_page + 1, total_pages + 1):
             p = document[pno - 1]
-            for d in p.get_drawings():
+            drawings = p.get_drawings()
+            if not drawings:
+                continue
+
+            # Check red heading drawings: "V. MULTIPLE CHOICE QUESTIONS" (fill: (0.5, 0.0, 0.0))
+            reds = [d for d in drawings if d.get("fill") and abs(d["fill"][0] - 0.5) < 0.05 and d["fill"][1] < 0.05 and d["fill"][2] < 0.05]
+            if len(reds) >= 10:
+                y0_red = min(d["rect"].y0 for d in reds)
+                y1_red = max(d["rect"].y1 for d in reds)
+                x0_red = min(d["rect"].x0 for d in reds)
+                x1_red = max(d["rect"].x1 for d in reds)
+                if y0_red > 200:
+                    red_headings.append((pno, (x0_red, y0_red, x1_red, y1_red)))
+
+            for d in drawings:
                 if d.get("fill") and d["rect"].width > 120 and d["rect"].height > 18:
                     fill = d["fill"]
                     # Green banner for Chemistry Assessment Sheets: fill=[0, 0.69, 0.31]
@@ -537,6 +555,15 @@ def detect_cbse_boundaries(pdf_path: Path) -> list[BoundaryMarker]:
                     # Blue ribbon for Maths Key: fill=[0, 0.44, 0.75]
                     elif d["rect"].y0 < 150 and abs(fill[0]) < 0.05 and abs(fill[1] - 0.44) < 0.06 and abs(fill[2] - 0.75) < 0.06:
                         blue_key_page = pno
+                        blue_key_bbox = (d["rect"].x0, d["rect"].y0, d["rect"].x1, d["rect"].y1)
+
+            # Check for Key table on final page of Chemistry (tables with multiple colored cells)
+            if pno == total_pages and green_sheets and not key_table_bbox:
+                table_cells = [d for d in drawings if d.get("fill") and d["rect"].height > 15 and d["rect"].y0 > 250]
+                if len(table_cells) >= 10:
+                    min_y0 = min(d["rect"].y0 for d in table_cells)
+                    key_table_page = pno
+                    key_table_bbox = (0, min_y0, p.rect.width, min_y0 + 50)
 
         if green_sheets:
             # Chemistry with vector green banners (e.g. Natures treasure 6 CBSE)
@@ -551,13 +578,14 @@ def detect_cbse_boundaries(pdf_path: Path) -> list[BoundaryMarker]:
                         reason=f"Found green Assessment Sheet-{idx+1} vector banner.",
                     )
                 )
-            # Last page contains the Key table
+            key_p = key_table_page or total_pages
+            key_b = key_table_bbox or (0, 265.0, document[-1].rect.width, 350.0)
             markers.append(
                 BoundaryMarker(
                     kind="key",
                     name="Answer-Key",
-                    page_number=total_pages,
-                    bbox=(0, 0, document[-1].rect.width, 100),
+                    page_number=key_p,
+                    bbox=key_b,
                     trigger_text="KEY",
                     reason="Found Key page at end of chapter.",
                 )
@@ -565,111 +593,126 @@ def detect_cbse_boundaries(pdf_path: Path) -> list[BoundaryMarker]:
             markers.sort(key=lambda item: (item.page_number, item.bbox[1], item.bbox[0]))
             return markers
 
-        ocr = _get_ocr()
-
-        # If blue ribbon was found (Maths), jump straight to backwards scan from key page (skips all image scanning!)
-        if blue_key_page is not None and ocr is not None:
+        if red_headings and blue_key_page:
+            # Maths with vector outlines (e.g. Data handling and presentation 6 CBSE)
+            pno_mcq, bbox_mcq = red_headings[0]
+            markers.append(
+                BoundaryMarker(
+                    kind="worksheet",
+                    name="Objective-Questions",
+                    page_number=pno_mcq,
+                    bbox=bbox_mcq,
+                    trigger_text="MULTIPLE CHOICE QUESTIONS",
+                    reason="Found vector Multiple Choice Questions heading.",
+                )
+            )
             markers.append(
                 BoundaryMarker(
                     kind="key",
                     name="Answer-Key",
                     page_number=blue_key_page,
-                    bbox=(200.0, 62.0, 410.0, 104.0),
+                    bbox=blue_key_bbox or (200.0, 62.0, 410.0, 104.0),
                     trigger_text="KEY",
                     reason="Found blue ribbon Key banner.",
                 )
             )
-            scan_from = blue_key_page - 1
-            min_scan = max(1, scan_from - 6)
-            for pno in range(scan_from, min_scan - 1, -1):
-                p_scan = document[pno - 1]
-                clip_r = fitz.Rect(0, p_scan.rect.height * 0.4, p_scan.rect.width, p_scan.rect.height)
-                pix = p_scan.get_pixmap(dpi=75, clip=clip_r)
-                import numpy as np
-                arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-                res, _ = ocr(arr)
-                if res:
-                    found_ws = False
-                    for b in res:
-                        norm_txt = re.sub(r'[^A-Z]', '', b[1].upper())
-                        if "MULTIPLECHOICE" in norm_txt or "OBJECTIVEEXERCISE" in norm_txt:
-                            y0_pt = clip_r.y0 + b[0][0][1] * 72.0 / 75.0
-                            top_pt = max(0.0, y0_pt - 8.0)
-                            markers.append(
-                                BoundaryMarker(
-                                    kind="worksheet",
-                                    name="Objective-Questions",
-                                    page_number=pno,
-                                    bbox=(0.0, top_pt, p_scan.rect.width, top_pt + 20.0),
-                                    trigger_text=b[1],
-                                    reason="Found Multiple Choice Questions heading via OCR.",
-                                )
-                            )
-                            found_ws = True
-                            break
-                    if found_ws:
-                        break
-
             markers.sort(key=lambda item: (item.page_number, item.bbox[1], item.bbox[0]))
             return markers
 
-        # Pass 2: Targeted Image Banners (Physics) - only top banners: width > 220, 35 <= height <= 95, horizontally centered!
-        if ocr is not None:
-            import numpy as np
-            found_img_start = False
-            for pno in range(start_scan_page + 1, total_pages + 1):
-                p = document[pno - 1]
-                for img in p.get_images():
-                    xref = img[0]
-                    rects = p.get_image_rects(xref)
-                    for r in rects:
-                        if r.width > 220 and 35 <= r.height <= 95 and r.y0 < 250 and 110 <= r.x0 <= 220:
-                            try:
-                                pix = fitz.Pixmap(document, xref)
-                                if pix.width > 200:
-                                    arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-                                    res, _ = ocr(arr)
-                                    if res:
-                                        for b in res:
-                                            txt = re.sub(r'[^A-Z0-9]', '', b[1].upper())
-                                            if "ASSESSMENTSHEET" in txt:
-                                                num_m = re.search(r"\d+", txt)
-                                                s_no = num_m.group(0) if num_m else "1"
-                                                markers.append(
-                                                    BoundaryMarker(
-                                                        kind="worksheet",
-                                                        name=f"Assessment-Sheet-{s_no}",
-                                                        page_number=pno,
-                                                        bbox=(r.x0, r.y0, r.x1, r.y1),
-                                                        trigger_text=b[1],
-                                                        reason="Found Assessment Sheet banner.",
-                                                    )
-                                                )
-                                            elif "OBJECTIVEEXERCISEKEY" in txt or "ANSWERKEY" in txt:
-                                                markers.append(
-                                                    BoundaryMarker(
-                                                        kind="key",
-                                                        name="Answer-Key",
-                                                        page_number=pno,
-                                                        bbox=(r.x0, r.y0, r.x1, r.y1),
-                                                        trigger_text=b[1],
-                                                        reason="Found Objective Exercise Key image banner.",
-                                                    )
-                                                )
-                                            elif ("OBJECTIVEEXERCISE" in txt or "MULTIPLECHOICE" in txt) and not found_img_start:
-                                                found_img_start = True
-                                                markers.append(
-                                                    BoundaryMarker(
-                                                        kind="worksheet",
-                                                        name="Objective-Exercise",
-                                                        page_number=pno,
-                                                        bbox=(r.x0, r.y0, r.x1, r.y1),
-                                                        trigger_text=b[1],
-                                                        reason="Found Objective Exercise image banner.",
-                                                    )
-                                                )
-                            except Exception:
-                                pass
+        # Mode C: Graphic Image Banners (Physics e.g. Heat Transfer in Nature 7 CBSE)
+        # Fast color-signature analysis (< 0.1s) avoiding heavy OCR
+        import numpy as np
+        found_img_start = False
+        found_img_key = False
+        fallback_candidates = []
+
+        for pno in range(start_scan_page + 1, total_pages + 1):
+            p = document[pno - 1]
+            images = p.get_images()
+            candidate_imgs = [img for img in images if img[2] > 800 and 2.5 <= img[2] / img[3] <= 6.0]
+            for img in candidate_imgs:
+                xref = img[0]
+                rects = p.get_image_rects(xref)
+                for r in rects:
+                    if r.width > 220 and 35 <= r.height <= 95 and r.y0 < 300 and 100 <= r.x0 <= 250:
+                        try:
+                            pix = fitz.Pixmap(document, xref)
+                            arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+                            # Purple banner for Objective Exercise: [165, 72, 163]
+                            purple_count = np.sum((arr[:, :, 0] > 140) & (arr[:, :, 1] < 100) & (arr[:, :, 2] > 130))
+                            # Cyan banner for Key: [1, 176, 239]
+                            cyan_count = np.sum((arr[:, :, 0] < 30) & (arr[:, :, 1] > 150) & (arr[:, :, 2] > 200))
+
+                            if purple_count > 10000 and not found_img_start:
+                                markers.append(
+                                    BoundaryMarker(
+                                        kind="worksheet",
+                                        name="Objective-Exercise",
+                                        page_number=pno,
+                                        bbox=(r.x0, r.y0, r.x1, r.y1),
+                                        trigger_text="OBJECTIVE EXERCISE",
+                                        reason="Found Objective Exercise banner via color profile.",
+                                    )
+                                )
+                                found_img_start = True
+                            elif cyan_count > 10000 and not found_img_key:
+                                markers.append(
+                                    BoundaryMarker(
+                                        kind="key",
+                                        name="Answer-Key",
+                                        page_number=pno,
+                                        bbox=(r.x0, r.y0, r.x1, r.y1),
+                                        trigger_text="OBJECTIVE EXERCISE-KEY",
+                                        reason="Found Objective Exercise Key banner via color profile.",
+                                    )
+                                )
+                                found_img_key = True
+                            else:
+                                fallback_candidates.append((pno, xref, r))
+                        except Exception:
+                            pass
+            if found_img_start and found_img_key:
+                break
+
+        # Fallback to targeted OCR only if fast color analysis did not find both banners
+        if not (found_img_start and found_img_key) and fallback_candidates:
+            ocr = _get_ocr()
+            if ocr is not None:
+                for pno, xref, r in fallback_candidates:
+                    try:
+                        pix = fitz.Pixmap(document, xref)
+                        arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+                        res, _ = ocr(arr)
+                        if res:
+                            txt = re.sub(r'[^A-Z0-9]', '', res[0][1].upper())
+                            if ("OBJECTIVEEXERCISEKEY" in txt or "ANSWERKEY" in txt) and not found_img_key:
+                                markers.append(
+                                    BoundaryMarker(
+                                        kind="key",
+                                        name="Answer-Key",
+                                        page_number=pno,
+                                        bbox=(r.x0, r.y0, r.x1, r.y1),
+                                        trigger_text=res[0][1],
+                                        reason="Found Objective Exercise Key banner via OCR fallback.",
+                                    )
+                                )
+                                found_img_key = True
+                            elif ("OBJECTIVEEXERCISE" in txt or "MULTIPLECHOICE" in txt) and not found_img_start:
+                                markers.append(
+                                    BoundaryMarker(
+                                        kind="worksheet",
+                                        name="Objective-Exercise",
+                                        page_number=pno,
+                                        bbox=(r.x0, r.y0, r.x1, r.y1),
+                                        trigger_text=res[0][1],
+                                        reason="Found Objective Exercise banner via OCR fallback.",
+                                    )
+                                )
+                                found_img_start = True
+                    except Exception:
+                        pass
+                    if found_img_start and found_img_key:
+                        break
 
         markers.sort(key=lambda item: (item.page_number, item.bbox[1], item.bbox[0]))
         return markers
@@ -822,27 +865,7 @@ def build_worksheet_ranges(
         name = getattr(marker, "worksheet_name", None) or getattr(marker, "name", "WS")
         start_page = marker.page_number
 
-        if preset == "ssc":
-            next_marker = None
-            for candidate in candidates_or_markers[idx + 1 :]:
-                c_kind = getattr(candidate, "kind", "")
-                if c_kind in {"key", "worksheet"}:
-                    next_marker = candidate
-                    break
-
-            if next_marker is not None:
-                c_kind = getattr(next_marker, "kind", "")
-                if c_kind == "key":
-                    end_page = next_marker.page_number
-                    end_bbox = None if include_key else next_marker.bbox
-                else:
-                    end_page = max(start_page, next_marker.page_number - 1)
-                    end_bbox = None
-            else:
-                end_page = total_pages
-                end_bbox = None
-            extra_pages = ()
-        elif preset == "cbse":
+        if preset in {"ssc", "cbse"}:
             key_markers = [m for m in candidates_or_markers if getattr(m, "kind", "") == "key"]
             global_key = key_markers[0] if key_markers else None
 
@@ -854,23 +877,32 @@ def build_worksheet_ranges(
                     break
 
             extra_pages = ()
-            if next_marker is not None and getattr(next_marker, "kind", "") == "worksheet":
-                # Followed by another worksheet (e.g. Assessment Sheet 1 -> 2)
-                end_page = next_marker.page_number
-                end_bbox = next_marker.bbox
-                if include_key and global_key:
-                    extra_pages = (global_key.page_number,)
-            elif next_marker is not None and getattr(next_marker, "kind", "") == "key":
-                # Check if there is a multi-page subjective solution gap between key banner and end of book (Maths Option A)
-                if total_pages - next_marker.page_number >= 2:
-                    end_page = next_marker.page_number - 1
-                    end_bbox = None
-                    if include_key:
-                        extra_pages = (total_pages,)
+            if next_marker is not None:
+                c_kind = getattr(next_marker, "kind", "")
+                if c_kind == "key":
+                    if not include_key:
+                        # Stop before key: if key is at top of page, end on previous page; otherwise bottom-crop right before key
+                        if next_marker.bbox[1] < 150.0 and next_marker.page_number > start_page:
+                            end_page = next_marker.page_number - 1
+                            end_bbox = None
+                        else:
+                            end_page = next_marker.page_number
+                            end_bbox = next_marker.bbox
+                    else:
+                        # Include key: if multi-page gap (Maths Option A), append end-of-book key table
+                        if total_pages - next_marker.page_number >= 2:
+                            end_page = next_marker.page_number - 1
+                            end_bbox = None
+                            extra_pages = (total_pages,)
+                        else:
+                            end_page = next_marker.page_number
+                            end_bbox = None
                 else:
-                    # Physics / standard: questions run up to key page
+                    # Followed by another worksheet (e.g. Assessment Sheet 1 -> 2)
                     end_page = next_marker.page_number
-                    end_bbox = None if include_key else next_marker.bbox
+                    end_bbox = next_marker.bbox
+                    if include_key and global_key:
+                        extra_pages = (global_key.page_number,)
             else:
                 end_page = total_pages
                 end_bbox = None

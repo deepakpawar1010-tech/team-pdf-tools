@@ -635,7 +635,7 @@ def worksheet_info_api():
                 preset = "ssc"
 
         stop_at_synopsis = request.form.get("stop_at_synopsis", "true").lower() == "true"
-        include_key = request.form.get("include_key", "true").lower() == "true"
+        include_key = request.form.get("include_key", "false").lower() == "true"
 
         from worksheet_splitter import get_worksheet_info
 
@@ -702,7 +702,7 @@ def worksheet_splitter_api():
                 preset = "ssc"
 
         stop_at_synopsis = request.form.get("stop_at_synopsis", "true").lower() == "true"
-        include_key = request.form.get("include_key", "true").lower() == "true"
+        include_key = request.form.get("include_key", "false").lower() == "true"
         crop_top = request.form.get("crop_top", "true").lower() == "true"
 
         pdf_inputs: list[tuple[str, Path]] = []
