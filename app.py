@@ -83,7 +83,7 @@ COMING_SOON = {
 
 @app.get("/<tool>")
 def tool_page(tool: str):
-    if tool in {"merge", "split", "compress", "pdf-to-word", "word-to-pdf", "worksheet-splitter", "oly-ete-splitter"}:
+    if tool in {"merge", "split", "compress", "pdf-to-word", "word-to-pdf", "worksheet-splitter", "oly-ete-splitter", "markdown-to-pdf", "md-to-pdf"}:
         return render_template("tool.html", tool=tool)
     if tool in COMING_SOON:
         return render_template("coming_soon.html", tool=tool, info=COMING_SOON[tool])
@@ -764,6 +764,49 @@ def worksheet_splitter_api():
                     os.remove(tf)
                 except Exception:
                     pass
+
+
+@app.post("/api/markdown-to-pdf")
+@app.post("/api/md-to-pdf")
+def markdown_to_pdf_api():
+    try:
+        markdown_text = ""
+        filename = "document.md"
+
+        upload = request.files.get("file")
+        if upload and upload.filename:
+            filename = upload.filename
+            raw_bytes = upload.read()
+            markdown_text = raw_bytes.decode("utf-8", errors="replace")
+        elif "markdown_text" in request.form and request.form["markdown_text"].strip():
+            markdown_text = request.form["markdown_text"]
+        else:
+            raise ValueError("Please provide a Markdown file (.md, .txt, .tex) or paste Markdown content.")
+
+        preset = request.form.get("preset", "exam").lower()
+        paper_size = request.form.get("paper_size", "A4").upper()
+        render_math = request.form.get("render_math", "true").lower() == "true"
+        font_family = request.form.get("font_family", "sans").lower()
+
+        from md_to_pdf import render_markdown_to_pdf
+        pdf_bytes = render_markdown_to_pdf(
+            markdown_text=markdown_text,
+            preset=preset,
+            paper_size=paper_size,
+            render_math=render_math,
+            font_family=font_family,
+        )
+
+        dl_name = output_name(filename, "rendered") if filename != "document.md" else "rendered-document.pdf"
+        return send_file(
+            io.BytesIO(pdf_bytes),
+            as_attachment=True,
+            download_name=dl_name,
+            mimetype="application/pdf",
+        )
+    except Exception as error:
+        logger.exception("Markdown to PDF conversion failed: %s", error)
+        return jsonify({"error": str(error)}), 400
 
 
 if __name__ == "__main__":

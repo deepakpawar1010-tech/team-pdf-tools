@@ -812,6 +812,7 @@
       <a class="{% if tool=='pdf-to-word' %}active{% endif %}" href="/pdf-to-word">PDF to Word</a>
       <a class="{% if tool=='word-to-pdf' %}active{% endif %}" href="/word-to-pdf">Word to PDF</a>
       <a class="{% if tool in ['worksheet-splitter', 'oly-ete-splitter'] %}active{% endif %}" href="/worksheet-splitter">Work-sheet Splitter</a>
+      <a class="{% if tool in ['markdown-to-pdf', 'md-to-pdf'] %}active{% endif %}" href="/markdown-to-pdf">Markdown to PDF</a>
       <a href="/pdf-to-markdown">PDF to Markdown <span class="soon-badge">Soon</span></a>
       <a href="/pdf-to-excel">PDF to Excel <span class="soon-badge">Soon</span></a>
     </nav>
@@ -823,18 +824,18 @@
         <div class="drop-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 0 1-.88-7.903A5 5 0 1 1 15.9 6L16 6a5 5 0 0 1 1 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
         </div>
-        <strong>{% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter'] %}Drop your PDF files here{% elif tool=='pdf-to-word' %}Drop your PDF file here to convert to Word{% elif tool=='word-to-pdf' %}Drop your Word document (.docx) here to convert to PDF{% else %}Drop your PDF file here{% endif %}</strong>
+        <strong>{% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter'] %}Drop your PDF files here{% elif tool=='pdf-to-word' %}Drop your PDF file here to convert to Word{% elif tool=='word-to-pdf' %}Drop your Word document (.docx) here to convert to PDF{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Drop your Markdown (.md, .txt, .tex) file here{% else %}Drop your PDF file here{% endif %}</strong>
         <span>or click to browse files from your computer</span>
         <div class="browse-btn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14"/></svg>
-          Choose {% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter'] %}PDF Files{% else %}File{% endif %}
+          Choose {% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter'] %}PDF Files{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Markdown File{% else %}File{% endif %}
         </div>
-        <input id="files" type="file" accept="{% if tool=='word-to-pdf' %}.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword{% else %}application/pdf{% endif %}" {% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter'] %}multiple{% endif %}>
+        <input id="files" type="file" accept="{% if tool=='word-to-pdf' %}.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}.md,.markdown,.txt,.tex,text/markdown,text/plain{% else %}application/pdf{% endif %}" {% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter'] %}multiple{% endif %}>
       </label>
 
       <div id="empty" class="empty">
         <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z"/></svg>
-        <h2>{% if tool=='merge' %}Add PDF files to merge{% elif tool=='split' %}Add a PDF to split{% elif tool=='pdf-to-word' %}Add a PDF to convert to Word{% elif tool=='word-to-pdf' %}Add a Word document to convert to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Add a PDF to split into worksheets{% else %}Add a PDF to compress{% endif %}</h2>
+        <h2>{% if tool=='merge' %}Add PDF files to merge{% elif tool=='split' %}Add a PDF to split{% elif tool=='pdf-to-word' %}Add a PDF to convert to Word{% elif tool=='word-to-pdf' %}Add a Word document to convert to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Add a PDF to split into worksheets{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Add a Markdown file to render to PDF{% else %}Add a PDF to compress{% endif %}</h2>
         <p>Private &amp; secure — files are processed in memory and never stored.</p>
       </div>
 
@@ -984,12 +985,63 @@
           </div>
         </div>
       </div>
+
+      <div id="markdownArea" class="hidden">
+        <div style="margin-bottom: 20px; display: flex; align-items: flex-start; justify-content: space-between;">
+          <div>
+            <span style="font-size: 11px; font-weight: 800; color: #4f46e5; text-transform: uppercase; letter-spacing: 1px;">Markdown &amp; LaTeX</span>
+            <h2 style="font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px;">Markdown to PDF</h2>
+          </div>
+          <button id="clearMarkdownInput" class="small-btn" type="button" style="color: #ef4444;">Clear</button>
+        </div>
+
+        <!-- Mode switcher: File Upload vs Direct Paste -->
+        <div class="method-tabs" style="margin-bottom: 16px; max-width: 360px;">
+          <button id="mdTabUpload" class="active" type="button">Uploaded File</button>
+          <button id="mdTabPaste" type="button">Paste / Edit Markdown</button>
+        </div>
+
+        <div id="mdUploadCard" style="background: white; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px 22px; display: flex; align-items: center; gap: 16px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
+          <div style="width: 44px; height: 44px; background: #eef2ff; color: #4f46e5; border-radius: 10px; display: grid; place-items: center; font-weight: 900; font-size: 14px; flex-shrink: 0;">.MD</div>
+          <div style="flex: 1; min-width: 0;">
+            <div id="mdFileName" style="font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);">No file selected</div>
+            <div id="mdFileMeta" style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Drop a .md, .txt, or .tex file or paste your text</div>
+          </div>
+          <button id="removeMarkdownFile" class="icon-btn" title="Remove file" type="button" style="border: 0; background: none; font-size: 22px; color: var(--text-muted); cursor: pointer; display: grid; place-items: center;">&times;</button>
+        </div>
+
+        <div id="mdPasteContainer" class="hidden" style="margin-bottom: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <label class="field-label" style="margin: 0;">Markdown &amp; LaTeX Content:</label>
+            <button id="loadSampleExamBtn" class="small-btn" type="button" style="color: #4f46e5; font-size: 12px;">Load Sample Exam</button>
+          </div>
+          <textarea id="markdownTextInput" rows="16" placeholder="Type or paste Markdown with LaTeX math ($x^2$, \frac{a}{b}, etc.)..." style="width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; font-family: Consolas, Monaco, monospace; font-size: 13px; line-height: 1.5; resize: vertical; box-sizing: border-box; background: #fafafa;"></textarea>
+        </div>
+
+        <div style="background: white; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px; margin-bottom: 20px;">
+          <h3 style="font-size: 14px; font-weight: 800; margin-bottom: 10px; color: var(--text);">Features &amp; Math Rendering:</h3>
+          <ul style="list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-muted); padding-left: 0; margin: 0;">
+            <li style="display: flex; align-items: center; gap: 8px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>LaTeX Math (KaTeX)</strong> &bull; Renders inline <code>$...$</code> and block <code>$$...$$</code>, fractions, roots, matrices</span>
+            </li>
+            <li style="display: flex; align-items: center; gap: 8px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Exam Paper Layout</strong> &bull; Narayana / JEE / Olympiad style with subject banners and avoid-break question cards</span>
+            </li>
+            <li style="display: flex; align-items: center; gap: 8px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Tables &amp; Code Blocks</strong> &bull; GFM Markdown tables, bold, italics, lists, and formatted code blocks</span>
+            </li>
+          </ul>
+        </div>
+      </div>
     </main>
 
     <aside class="side">
       <h1>
-        <span style="color: {% if tool in ['pdf-to-word', 'word-to-pdf'] %}#2563eb{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}#9333ea{% else %}var(--primary){% endif %};">●</span>
-        {% if tool=='pdf-to-word' %}PDF to Word{% elif tool=='word-to-pdf' %}Word to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Work-sheet Splitter{% else %}{{ tool|title }} PDF{% endif %}
+        <span style="color: {% if tool in ['pdf-to-word', 'word-to-pdf'] %}#2563eb{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}#9333ea{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}#4f46e5{% else %}var(--primary){% endif %};">●</span>
+        {% if tool=='pdf-to-word' %}PDF to Word{% elif tool=='word-to-pdf' %}Word to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Work-sheet Splitter{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Markdown to PDF{% else %}{{ tool|title }} PDF{% endif %}
       </h1>
 
       <div class="side-content">
@@ -1131,6 +1183,37 @@
             <div style="font-size: 11.5px; color: var(--text-muted);">Individual cropped PDF files</div>
           </div>
         </div>
+        {% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}
+        <label class="field-label">Document Preset</label>
+        <div class="mode-tabs">
+          <button id="presetExam" class="active" type="button">Exam Paper</button>
+          <button id="presetAcademic" type="button">Academic</button>
+          <button id="presetClean" type="button">Clean</button>
+        </div>
+
+        <label class="field-label" for="mdPaperSize">Paper Size</label>
+        <select id="mdPaperSize" class="quality" style="margin-bottom: 14px; width: 100%;">
+          <option value="A4" selected>A4 (Standard 210 × 297 mm)</option>
+          <option value="letter">US Letter (8.5 × 11 in)</option>
+        </select>
+
+        <label class="field-label" for="mdFontFamily">Typography</label>
+        <select id="mdFontFamily" class="quality" style="margin-bottom: 16px; width: 100%;">
+          <option value="sans" selected>Modern Sans-Serif (Segoe UI / Inter)</option>
+          <option value="serif">Academic Serif (Computer Modern / Times)</option>
+        </select>
+
+        <label class="check" style="font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 10px;">
+          <input id="mdRenderMath" type="checkbox" checked style="accent-color: #4f46e5;">
+          Render LaTeX Math Formulas ($x^2$)
+        </label>
+        <label class="check" style="font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 16px;">
+          <input id="mdPageBreakAvoid" type="checkbox" checked style="accent-color: #4f46e5;">
+          Keep Questions on Single Page
+        </label>
+        <p class="hint" style="line-height: 1.6; margin-top: 10px;">
+          Converts Markdown documents and renders all embedded LaTeX math formulas into publication-quality vector PDFs.
+        </p>
         {% else %}
         <p class="hint" style="line-height: 1.6; margin-top: 10px;">
           Upload multiple PDF documents. Drag and drop the thumbnail cards on the left to reorder them before merging.
@@ -1138,8 +1221,8 @@
         {% endif %}
       </div>
 
-      <button id="submit" class="primary" {% if tool in ['pdf-to-word', 'word-to-pdf'] %}style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);"{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}style="background: linear-gradient(135deg, #9333ea 0%, #a855f7 100%); box-shadow: 0 4px 14px rgba(147, 51, 234, 0.3);"{% endif %}>
-        <span>{% if tool=='pdf-to-word' %}Convert to Word (.docx){% elif tool=='word-to-pdf' %}Convert to PDF (.pdf){% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Split Worksheets (.zip){% else %}{{ tool|title }} PDF{% endif %}</span>
+      <button id="submit" class="primary" {% if tool in ['pdf-to-word', 'word-to-pdf'] %}style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);"{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}style="background: linear-gradient(135deg, #9333ea 0%, #a855f7 100%); box-shadow: 0 4px 14px rgba(147, 51, 234, 0.3);"{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}style="background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%); box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);"{% endif %}>
+        <span>{% if tool=='pdf-to-word' %}Convert to Word (.docx){% elif tool=='word-to-pdf' %}Convert to PDF (.pdf){% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Split Worksheets (.zip){% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Render to PDF (.pdf){% else %}{{ tool|title }} PDF{% endif %}</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>
       </button>
       <p id="message" class="message"></p>
@@ -1186,14 +1269,15 @@
       if (v) {
         $('submit').innerHTML = '<span>Processing…</span>';
       } else {
-        const label = mode === 'pdf-to-word' ? 'Convert to Word (.docx)' : mode === 'word-to-pdf' ? 'Convert to PDF (.pdf)' : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Split Worksheets (.zip)' : `${mode[0].toUpperCase() + mode.slice(1)} PDF`;
+        const label = mode === 'pdf-to-word' ? 'Convert to Word (.docx)' : mode === 'word-to-pdf' ? 'Convert to PDF (.pdf)' : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Split Worksheets (.zip)' : (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') ? 'Render to PDF (.pdf)' : `${mode[0].toUpperCase() + mode.slice(1)} PDF`;
         $('submit').innerHTML = `<span>${label}</span> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>`;
       }
     }
 
     function updateAreas() {
+      const isMd = mode === 'markdown-to-pdf' || mode === 'md-to-pdf';
       const has = state.files.length > 0;
-      $('empty').classList.toggle('hidden', has);
+      $('empty').classList.toggle('hidden', has || isMd);
       $('mergeArea').classList.toggle('hidden', mode !== 'merge' || !has);
       $('splitArea').classList.toggle('hidden', mode !== 'split' || !has);
       $('compressArea').classList.toggle('hidden', mode !== 'compress' || !has);
@@ -1201,6 +1285,10 @@
       $('wordToPdfArea').classList.toggle('hidden', mode !== 'word-to-pdf' || !has);
       if ($('worksheetArea')) {
         $('worksheetArea').classList.toggle('hidden', (mode !== 'worksheet-splitter' && mode !== 'oly-ete-splitter') || !has);
+      }
+      if ($('markdownArea')) {
+        $('markdownArea').classList.toggle('hidden', !isMd);
+        if (isMd) initMarkdownControls();
       }
     }
 
@@ -1400,6 +1488,19 @@
           return;
         } catch (e) {
           console.warn('Word to PDF fast load fallback:', e);
+        }
+      }
+
+      // In Markdown to PDF Mode: Instant load
+      if ((mode === 'markdown-to-pdf' || mode === 'md-to-pdf') && state.files.length > 0) {
+        try {
+          renderMarkdownArea();
+          show('');
+          updateAreas();
+          setBusy(false);
+          return;
+        } catch (e) {
+          console.warn('Markdown fast load fallback:', e);
         }
       }
 
@@ -1606,6 +1707,156 @@
       if (removeBtn) removeBtn.onclick = cleanup;
       const clearBtn = $('clearWordToPdfFile');
       if (clearBtn) clearBtn.onclick = cleanup;
+    }
+
+    function initMarkdownControls() {
+      const uploadTab = $('mdTabUpload');
+      const pasteTab = $('mdTabPaste');
+      const uploadCard = $('mdUploadCard');
+      const pasteContainer = $('mdPasteContainer');
+      const dropZone = $('drop');
+      const loadSampleBtn = $('loadSampleExamBtn');
+      const clearBtn = $('clearMarkdownInput');
+      const removeBtn = $('removeMarkdownFile');
+
+      const presetExam = $('presetExam');
+      const presetAcademic = $('presetAcademic');
+      const presetClean = $('presetClean');
+
+      if (presetExam && !presetExam._hasListener) {
+        presetExam._hasListener = true;
+        presetExam.onclick = () => {
+          state.mdPreset = 'exam';
+          presetExam.classList.add('active');
+          if (presetAcademic) presetAcademic.classList.remove('active');
+          if (presetClean) presetClean.classList.remove('active');
+        };
+      }
+      if (presetAcademic && !presetAcademic._hasListener) {
+        presetAcademic._hasListener = true;
+        presetAcademic.onclick = () => {
+          state.mdPreset = 'academic';
+          presetAcademic.classList.add('active');
+          if (presetExam) presetExam.classList.remove('active');
+          if (presetClean) presetClean.classList.remove('active');
+        };
+      }
+      if (presetClean && !presetClean._hasListener) {
+        presetClean._hasListener = true;
+        presetClean.onclick = () => {
+          state.mdPreset = 'clean';
+          presetClean.classList.add('active');
+          if (presetExam) presetExam.classList.remove('active');
+          if (presetAcademic) presetAcademic.classList.remove('active');
+        };
+      }
+
+      if (uploadTab && !uploadTab._hasListener) {
+        uploadTab._hasListener = true;
+        uploadTab.onclick = () => {
+          uploadTab.classList.add('active');
+          if (pasteTab) pasteTab.classList.remove('active');
+          if (uploadCard) uploadCard.classList.remove('hidden');
+          if (pasteContainer) pasteContainer.classList.add('hidden');
+          if (dropZone) dropZone.classList.remove('hidden');
+        };
+      }
+
+      if (pasteTab && !pasteTab._hasListener) {
+        pasteTab._hasListener = true;
+        pasteTab.onclick = () => {
+          pasteTab.classList.add('active');
+          if (uploadTab) uploadTab.classList.remove('active');
+          if (pasteContainer) pasteContainer.classList.remove('hidden');
+          if (uploadCard) uploadCard.classList.add('hidden');
+          if (dropZone) dropZone.classList.add('hidden');
+        };
+      }
+
+      const sampleExamText = `# NARAYANA EDUCATIONAL INSTITUTIONS
+## JEE ADVANCED - 2024 | MOCK TEST PAPER - 1
+
+### MATHEMATICS
+
+**Q1.**
+Let $f(x) = \\frac{\\sqrt{x^2 + 1} - 1}{x}$ for $x \\neq 0$ and $f(0) = 0$. If $I = \\int_{0}^{1} \\frac{x}{\\sqrt{1+x^2}} dx$, then the value of $I$ is:
+A) $\\sqrt{2} - 1$
+B) $\\sqrt{2} + 1$
+C) $2\\sqrt{2} - 1$
+D) $1$
+Key: A
+Explanation: Substitute $u = 1 + x^2 \\implies du = 2x dx$. Then $I = \\frac{1}{2} \\int_{1}^{2} u^{-1/2} du = [\\sqrt{u}]_1^2 = \\sqrt{2} - 1$.
+Topic: Definite Integration
+Difficulty Level: Medium
+
+**Q2.**
+Consider the differential equation $\\frac{dy}{dx} + y \\tan x = \\sec x$. If $y(0) = 1$, then $y\\left(\\frac{\\pi}{3}\\right)$ equals:
+A) $1$
+B) $2$
+C) $\\sqrt{3}$
+D) $2 + \\sqrt{3}$
+Key: B
+Explanation: Integrating factor $I.F. = e^{\\int \\tan x dx} = \\sec x$. General solution $y \\sec x = \\int \\sec^2 x dx = \\tan x + c$. Since $y(0) = 1 \\implies 1 \\cdot 1 = 0 + c \\implies c = 1$. Thus $y = \\sin x + \\cos x$. For $x = \\pi/3$, $y = \\frac{\\sqrt{3}}{2} + \\frac{1}{2} = \\frac{\\sqrt{3}+1}{2}$.
+Topic: Differential Equations
+Difficulty Level: Easy
+
+### PHYSICS
+
+**Q3.**
+A ball of mass $m = 2\\text{ kg}$ is thrown vertically upwards with velocity $v_0 = 20\\text{ m/s}$. The maximum height reached is given by $H = \\frac{v_0^2}{2g}$. Taking $g = 10\\text{ m/s}^2$:
+A) $10\\text{ m}$
+B) $20\\text{ m}$
+C) $30\\text{ m}$
+D) $40\\text{ m}$
+Key: B
+Explanation: $H = \\frac{20^2}{2 \\times 10} = \\frac{400}{20} = 20\\text{ m}$.
+Topic: Kinematics
+Difficulty Level: Easy`;
+
+      if (loadSampleBtn && !loadSampleBtn._hasListener) {
+        loadSampleBtn._hasListener = true;
+        loadSampleBtn.onclick = () => {
+          if ($('markdownTextInput')) {
+            $('markdownTextInput').value = sampleExamText;
+          }
+          if (pasteTab) pasteTab.click();
+          show('Sample exam loaded! Click "Render to PDF" to generate your PDF.', false, true);
+        };
+      }
+
+      const cleanup = () => {
+        state.files = [];
+        state.fileBytes = null;
+        if ($('mdFileName')) $('mdFileName').textContent = 'No file selected';
+        if ($('mdFileMeta')) $('mdFileMeta').textContent = 'Drop a .md, .txt, or .tex file or paste your text';
+        if ($('markdownTextInput')) $('markdownTextInput').value = '';
+        updateAreas();
+      };
+
+      if (clearBtn && !clearBtn._hasListener) {
+        clearBtn._hasListener = true;
+        clearBtn.onclick = cleanup;
+      }
+      if (removeBtn && !removeBtn._hasListener) {
+        removeBtn._hasListener = true;
+        removeBtn.onclick = cleanup;
+      }
+    }
+
+    function renderMarkdownArea() {
+      initMarkdownControls();
+      if (!state.files.length) return;
+      const file = state.files[0];
+      if ($('mdFileName')) $('mdFileName').textContent = file.name;
+      if ($('mdFileMeta')) $('mdFileMeta').textContent = `Document • ${bytes(file.size)}`;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if ($('markdownTextInput') && !$('markdownTextInput').value.trim()) {
+          $('markdownTextInput').value = e.target.result;
+        }
+      };
+      reader.readAsText(file);
     }
 
     function initWorksheetPresetControls() {
@@ -2107,6 +2358,15 @@
             state.files.push(f);
           }
         });
+      } else if (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') {
+        state.files = [...ev.dataTransfer.files].filter(f =>
+          f.name.toLowerCase().endsWith('.md') ||
+          f.name.toLowerCase().endsWith('.markdown') ||
+          f.name.toLowerCase().endsWith('.txt') ||
+          f.name.toLowerCase().endsWith('.tex') ||
+          f.type.includes('text') ||
+          f.type.includes('markdown')
+        );
       } else {
         state.files = [...ev.dataTransfer.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
       }
@@ -2269,11 +2529,37 @@
     }
 
     $('submit').onclick = async () => {
-      if (!state.files.length) return show(mode === 'word-to-pdf' ? 'Please choose a Word (.docx) file first.' : 'Please choose a PDF file first.', true);
-      if (mode === 'merge' && state.files.length < 2) return show('Merge requires at least two PDF files.', true);
+      if (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') {
+        const textVal = $('markdownTextInput') ? $('markdownTextInput').value.trim() : '';
+        if (!state.files.length && !textVal) {
+          return show('Please upload a Markdown file or paste Markdown content first.', true);
+        }
+      } else {
+        if (!state.files.length) return show(mode === 'word-to-pdf' ? 'Please choose a Word (.docx) file first.' : 'Please choose a PDF file first.', true);
+        if (mode === 'merge' && state.files.length < 2) return show('Merge requires at least two PDF files.', true);
+      }
 
       const form = new FormData();
-      if (mode === 'merge' || mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
+      if (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') {
+        const textVal = $('markdownTextInput') ? $('markdownTextInput').value.trim() : '';
+        const pasteTab = $('mdTabPaste');
+        const isPasteActive = pasteTab && pasteTab.classList.contains('active');
+
+        if (state.files.length && (!isPasteActive || !textVal)) {
+          form.append('file', state.files[0]);
+        } else if (textVal) {
+          form.append('markdown_text', textVal);
+        } else if (state.files.length) {
+          form.append('file', state.files[0]);
+        }
+
+        const preset = state.mdPreset || 'exam';
+        form.append('preset', preset);
+        form.append('paper_size', $('mdPaperSize') ? $('mdPaperSize').value : 'A4');
+        form.append('font_family', $('mdFontFamily') ? $('mdFontFamily').value : 'sans');
+        form.append('render_math', $('mdRenderMath') ? ($('mdRenderMath').checked ? 'true' : 'false') : 'true');
+        form.append('page_break_avoid', $('mdPageBreakAvoid') ? ($('mdPageBreakAvoid').checked ? 'true' : 'false') : 'true');
+      } else if (mode === 'merge' || mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
         state.files.forEach(f => form.append('files', f));
       } else {
         form.append('file', state.files[0]);
@@ -2437,6 +2723,8 @@
         show(`Converting ${langLabel} to Word (.docx)… this may take a moment.`);
       } else if (mode === 'word-to-pdf') {
         show('Converting Word to PDF… this may take a moment.');
+      } else if (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') {
+        show('Rendering Markdown & LaTeX math into PDF… this takes ~1-2 seconds.');
       } else if (mode === 'compress') {
         show('Compressing pages… this may take a moment for large files.');
       } else if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
@@ -2475,6 +2763,8 @@
         const blob = await r.blob();
         let name = mode === 'pdf-to-word' ? (state.files[0].name.replace(/\.pdf$/i, '') + '-converted.docx')
                  : mode === 'word-to-pdf' ? (state.files[0].name.replace(/\.(docx|doc)$/i, '') + '-converted.pdf')
+                 : (mode === 'markdown-to-pdf' || mode === 'md-to-pdf')
+                   ? (state.files.length ? state.files[0].name.replace(/\.(md|markdown|txt|tex)$/i, '') + '-rendered.pdf' : 'rendered-document.pdf')
                  : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') 
                    ? (state.files.length > 1 
                        ? `split-${state.worksheetPreset || 'worksheets'}-bundle.zip`
@@ -2490,9 +2780,9 @@
         a.download = name;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        show(mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' : mode === 'word-to-pdf' ? 'Done! PDF document downloaded.' : mode === 'compress' ? 'Done! Compressed PDF downloaded.' : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Done! All split worksheets downloaded as ZIP.' : 'Done! Your download has started.', false, true);
+        show(mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' : mode === 'word-to-pdf' ? 'Done! PDF document downloaded.' : (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') ? 'Done! Rendered PDF downloaded.' : mode === 'compress' ? 'Done! Compressed PDF downloaded.' : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Done! All split worksheets downloaded as ZIP.' : 'Done! Your download has started.', false, true);
       } catch (e) {
-        show(e.message || (mode === 'word-to-pdf' ? 'Could not convert Word document.' : 'Could not process PDF.'), true);
+        show(e.message || (mode === 'word-to-pdf' ? 'Could not convert Word document.' : (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') ? 'Could not render Markdown to PDF.' : 'Could not process PDF.'), true);
       } finally {
         setBusy(false);
       }
