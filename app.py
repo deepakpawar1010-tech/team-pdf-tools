@@ -777,11 +777,15 @@ def markdown_to_pdf_api():
         if upload and upload.filename:
             filename = upload.filename
             raw_bytes = upload.read()
-            markdown_text = raw_bytes.decode("utf-8", errors="replace")
+            if filename.lower().endswith(".pdf") or upload.mimetype == "application/pdf":
+                from md_to_pdf import extract_latex_text_from_pdf
+                markdown_text = extract_latex_text_from_pdf(raw_bytes)
+            else:
+                markdown_text = raw_bytes.decode("utf-8", errors="replace")
         elif "markdown_text" in request.form and request.form["markdown_text"].strip():
             markdown_text = request.form["markdown_text"]
         else:
-            raise ValueError("Please provide a Markdown file (.md, .txt, .tex) or paste Markdown content.")
+            raise ValueError("Please provide a PDF or Markdown file (.pdf, .md, .txt, .tex) or paste Markdown content.")
 
         preset = request.form.get("preset", "exam").lower()
         paper_size = request.form.get("paper_size", "A4").upper()
@@ -806,6 +810,27 @@ def markdown_to_pdf_api():
         )
     except Exception as error:
         logger.exception("Markdown to PDF conversion failed: %s", error)
+        return jsonify({"error": str(error)}), 400
+
+
+@app.post("/api/extract-markdown-from-pdf")
+def extract_markdown_from_pdf_api():
+    try:
+        upload = request.files.get("file")
+        if not upload or not upload.filename:
+            raise ValueError("No PDF file provided.")
+        raw_bytes = upload.read()
+        from md_to_pdf import extract_latex_text_from_pdf
+        text = extract_latex_text_from_pdf(raw_bytes)
+        import fitz
+        doc = fitz.open(stream=raw_bytes, filetype="pdf")
+        return jsonify({
+            "text": text,
+            "page_count": len(doc),
+            "filename": upload.filename,
+        })
+    except Exception as error:
+        logger.exception("PDF text extraction failed: %s", error)
         return jsonify({"error": str(error)}), 400
 
 

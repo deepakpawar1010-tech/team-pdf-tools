@@ -1,6 +1,7 @@
 from pathlib import Path
 from .converter import convert_markdown_to_html
 from .renderer import render_html_to_pdf
+from .extractor import extract_latex_text_from_pdf
 
 
 def render_markdown_to_pdf(
@@ -21,4 +22,9 @@ def render_markdown_to_pdf(
     return render_html_to_pdf(html_content, output_pdf_path=output_pdf_path)
 
 
-__all__ = ["convert_markdown_to_html", "render_html_to_pdf", "render_markdown_to_pdf"]
+__all__ = [
+    "convert_markdown_to_html",
+    "render_html_to_pdf",
+    "render_markdown_to_pdf",
+    "extract_latex_text_from_pdf",
+]
