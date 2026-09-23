@@ -207,34 +207,68 @@ def split_pdf():
         upload = request.files.get("file")
         valid_pdf(upload)
         ranges = request.form.get("ranges", "")
-        reader = PdfReader(upload.stream)
+
+        file_bytes = upload.read()
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        total_pages = len(doc)
+
         selected_ranges = []
         for piece in ranges.split(","):
-            start, end = (int(value.strip()) for value in piece.split("-", 1))
-            if start < 1 or end < start or end > len(reader.pages):
-                raise ValueError(f"Use page ranges between 1 and {len(reader.pages)}.")
+            piece = piece.strip()
+            if not piece:
+                continue
+            if "-" in piece:
+                parts = piece.split("-", 1)
+                start = int(parts[0].strip())
+                end = int(parts[1].strip())
+            else:
+                start = end = int(piece)
+            if start > end:
+                start, end = end, start
+            if start < 1 or end > total_pages:
+                raise ValueError(f"Use page ranges between 1 and {total_pages}.")
             selected_ranges.append((start, end))
-        if request.form.get("combine", "true") == "true":
-            writer = PdfWriter()
+
+        if not selected_ranges:
+            raise ValueError("Please provide at least one valid page range.")
+
+        combine = request.form.get("combine", "true").lower() == "true"
+        if combine:
+            out_doc = fitz.open()
             for start, end in selected_ranges:
-                for index in range(start - 1, end):
-                    writer.add_page(reader.pages[index])
-            result = io.BytesIO()
-            writer.write(result)
-            result.seek(0)
-            return send_file(result, as_attachment=True, download_name=output_name(upload.filename, "selected-pages"), mimetype="application/pdf")
+                out_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
+            pdf_bytes = out_doc.tobytes(deflate=True, garbage=3)
+            out_doc.close()
+            doc.close()
+            return send_file(
+                io.BytesIO(pdf_bytes),
+                as_attachment=True,
+                download_name=output_name(upload.filename, "selected-pages"),
+                mimetype="application/pdf",
+            )
+
+        # Unmerged: Create individual PDF files bundled into a ZIP archive
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
             for number, (start, end) in enumerate(selected_ranges, start=1):
-                writer = PdfWriter()
-                for index in range(start - 1, end):
-                    writer.add_page(reader.pages[index])
-                pdf = io.BytesIO()
-                writer.write(pdf)
-                output.writestr(output_name(upload.filename, f"pages-{start}-{end}"), pdf.getvalue())
+                sub_doc = fitz.open()
+                sub_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
+                sub_bytes = sub_doc.tobytes(deflate=True, garbage=3)
+                sub_doc.close()
+                suffix = f"page-{start}" if start == end else f"pages-{start}-{end}"
+                file_entry_name = output_name(upload.filename, f"{number:02d}_{suffix}")
+                output.writestr(file_entry_name, sub_bytes)
+
+        doc.close()
         archive.seek(0)
-        return send_file(archive, as_attachment=True, download_name=output_name(upload.filename, "split-files").replace(".pdf", ".zip"), mimetype="application/zip")
+        return send_file(
+            archive,
+            as_attachment=True,
+            download_name=output_name(upload.filename, "split-files").replace(".pdf", ".zip"),
+            mimetype="application/zip",
+        )
     except Exception as error:
+        logger.exception("Split PDF failed: %s", error)
         return jsonify({"error": str(error)}), 400
 
 
