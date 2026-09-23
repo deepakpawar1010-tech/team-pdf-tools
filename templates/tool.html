@@ -49,7 +49,7 @@
       position: sticky;
       top: 0;
       z-index: 50;
-      height: 68px;
+      height: 60px;
       background: rgba(255, 255, 255, 0.9);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border);
@@ -62,23 +62,23 @@
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 9px;
       font-weight: 800;
-      font-size: 19px;
+      font-size: 18px;
       color: var(--text);
       text-decoration: none;
       letter-spacing: -0.02em;
     }
 
     .brand-icon {
-      width: 34px;
-      height: 34px;
+      width: 32px;
+      height: 32px;
       background: var(--gradient);
       border-radius: 9px;
       display: grid;
       place-items: center;
       color: white;
-      box-shadow: 0 4px 12px rgba(225, 29, 72, 0.2);
+      box-shadow: 0 3px 8px rgba(225, 29, 72, 0.25);
     }
     .brand-icon svg { width: 18px; height: 18px; stroke-width: 2.2; }
 
@@ -811,8 +811,8 @@
       <a class="{% if tool=='compress' %}active{% endif %}" href="/compress">Compress</a>
       <a class="{% if tool=='pdf-to-word' %}active{% endif %}" href="/pdf-to-word">PDF to Word</a>
       <a class="{% if tool=='word-to-pdf' %}active{% endif %}" href="/word-to-pdf">Word to PDF</a>
-      <a class="{% if tool in ['worksheet-splitter', 'oly-ete-splitter'] %}active{% endif %}" href="/worksheet-splitter">Work-sheet Splitter</a>
-      <a class="{% if tool in ['markdown-to-pdf', 'md-to-pdf'] %}active{% endif %}" href="/markdown-to-pdf">Markdown to PDF</a>
+      <a class="{% if tool in ['worksheet-splitter', 'oly-ete-splitter'] %}active{% endif %}" href="/worksheet-splitter">Work-sheet Splitter <span style="font-size: 9.5px; font-weight: 800; text-transform: uppercase; background: #faf5ff; color: #9333ea; border: 1px solid #e9d5ff; padding: 1px 5px; border-radius: 9999px;">New</span></a>
+      <a class="{% if tool in ['markdown-to-pdf', 'md-to-pdf'] %}active{% endif %}" href="/markdown-to-pdf">Markdown to PDF <span style="font-size: 9.5px; font-weight: 800; text-transform: uppercase; background: #eef2ff; color: #4f46e5; border: 1px solid #e0e7ff; padding: 1px 5px; border-radius: 9999px;">New</span></a>
       <a href="/pdf-to-markdown">PDF to Markdown <span class="soon-badge">Soon</span></a>
       <a href="/pdf-to-excel">PDF to Excel <span class="soon-badge">Soon</span></a>
     </nav>

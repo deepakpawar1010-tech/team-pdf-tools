@@ -19,7 +19,7 @@
       --primary-hover: #be123c;
       --primary-glow: rgba(225, 29, 72, 0.12);
       --gradient: linear-gradient(135deg, #e11d48 0%, #f43f5e 50%, #fb7185 100%);
-      --radius-lg: 20px;
+      --radius-lg: 16px;
       --radius-md: 12px;
       --radius-sm: 8px;
     }
@@ -36,55 +36,55 @@
       -webkit-font-smoothing: antialiased;
     }
 
+    /* Modern Glass Header */
     header {
       position: sticky;
       top: 0;
       z-index: 50;
-      height: 72px;
-      background: rgba(255, 255, 255, 0.85);
+      height: 60px;
+      background: rgba(255, 255, 255, 0.9);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 max(24px, 5vw);
+      padding: 0 max(20px, 4vw);
     }
 
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 9px;
       font-weight: 800;
-      font-size: 20px;
+      font-size: 18px;
       color: var(--text);
       text-decoration: none;
       letter-spacing: -0.02em;
     }
 
     .brand-icon {
-      width: 36px;
-      height: 36px;
+      width: 32px;
+      height: 32px;
       background: var(--gradient);
-      border-radius: 10px;
+      border-radius: 9px;
       display: grid;
       place-items: center;
       color: white;
-      box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);
+      box-shadow: 0 3px 8px rgba(225, 29, 72, 0.25);
     }
+    .brand-icon svg { width: 18px; height: 18px; stroke-width: 2.2; }
 
-    .brand-icon svg { width: 20px; height: 20px; stroke-width: 2.2; }
-
-    nav { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+    nav { display: flex; gap: 3px; align-items: center; flex-wrap: wrap; }
     nav a {
       color: var(--text-muted);
       text-decoration: none;
       font-weight: 600;
-      font-size: 13px;
-      padding: 6px 12px;
+      font-size: 12.5px;
+      padding: 5px 10px;
       border-radius: var(--radius-sm);
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       transition: all 0.15s ease;
     }
     nav a:hover {
@@ -93,206 +93,334 @@
     }
 
     .soon-badge {
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.04em;
       background: #fffbeb;
       color: #d97706;
       border: 1px solid #fde68a;
-      padding: 1px 6px;
+      padding: 1px 5px;
       border-radius: 9999px;
     }
 
+    .new-badge {
+      font-size: 9.5px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: #faf5ff;
+      color: #9333ea;
+      border: 1px solid #e9d5ff;
+      padding: 1px 5px;
+      border-radius: 9999px;
+    }
+
+    /* Main Container (Tight, Zero Space Wasted) */
     main {
       flex: 1;
       width: 100%;
-      max-width: 1160px;
+      max-width: 1240px;
       margin: 0 auto;
-      padding: 60px 24px 80px;
+      padding: 24px 20px 60px;
     }
 
-    .hero {
-      text-align: center;
-      max-width: 780px;
-      margin: 0 auto 60px;
-    }
-
-    .badge-pill {
-      display: inline-flex;
+    /* Top Utility & Control Bar */
+    .top-control-bar {
+      display: flex;
       align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .title-group h1 {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .title-group p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #10b981;
+      display: inline-block;
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+    }
+
+    .search-filter-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-grow: 1;
+      max-width: 440px;
+    }
+
+    .search-box {
+      position: relative;
+      width: 100%;
+    }
+
+    .search-box svg {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #94a3b8;
+      width: 16px;
+      height: 16px;
+      pointer-events: none;
+    }
+
+    .search-input {
+      width: 100%;
+      height: 38px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: white;
+      padding: 0 14px 0 36px;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--text);
+      outline: none;
+      transition: all 0.15s ease;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+    }
+
+    .search-input:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+    }
+
+    /* Category Filter Pills */
+    .filter-pills {
+      display: flex;
       gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 22px;
+    }
+
+    .pill-btn {
+      border: 1px solid var(--border);
+      background: white;
+      color: var(--text-muted);
+      font-size: 12.5px;
+      font-weight: 700;
       padding: 6px 14px;
       border-radius: 9999px;
-      background: #fff1f2;
-      border: 1px solid #ffe4e6;
-      color: var(--primary);
-      font-size: 13px;
-      font-weight: 700;
-      margin-bottom: 24px;
-      letter-spacing: 0.01em;
-    }
-    .badge-dot {
-      width: 8px;
-      height: 8px;
-      background: var(--primary);
-      border-radius: 50%;
-      animation: pulse 2s infinite;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+      font-family: inherit;
     }
 
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); opacity: 1; }
-      50% { transform: scale(1.3); opacity: 0.6; }
-    }
-
-    .hero h1 {
-      font-size: clamp(38px, 6vw, 64px);
-      font-weight: 800;
-      line-height: 1.1;
-      letter-spacing: -0.035em;
+    .pill-btn:hover {
+      border-color: var(--border-hover);
       color: var(--text);
-      margin-bottom: 20px;
+      background: #f8fafc;
     }
 
-    .gradient-text {
-      background: var(--gradient);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+    .pill-btn.active {
+      background: var(--text);
+      color: white;
+      border-color: var(--text);
     }
 
-    .hero p {
-      font-size: clamp(16px, 2.2vw, 19px);
-      color: var(--text-muted);
-      line-height: 1.6;
-      max-width: 620px;
-      margin: 0 auto;
+    .pill-count {
+      font-size: 11px;
+      font-weight: 700;
+      opacity: 0.75;
     }
 
-    .grid {
+    /* Modern Tool Cards Grid */
+    .tools-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 24px;
-      margin-bottom: 70px;
+      grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+      gap: 18px;
+      margin-bottom: 40px;
     }
 
-    .tile {
+    .tool-tile {
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 32px 28px;
+      padding: 22px 20px;
       text-decoration: none;
       color: var(--text);
       display: flex;
       flex-direction: column;
       position: relative;
       overflow: hidden;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02), 0 8px 16px rgba(0, 0, 0, 0.02);
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 4px 10px rgba(0, 0, 0, 0.02);
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    .tile::before {
+    .tool-tile::before {
       content: '';
       position: absolute;
       top: 0;
       left: 0;
       right: 0;
       height: 3px;
-      background: var(--gradient);
+      background: var(--tile-accent, var(--gradient));
       opacity: 0;
       transition: opacity 0.2s ease;
     }
 
-    .tile:hover {
-      transform: translateY(-4px);
+    .tool-tile:hover {
+      transform: translateY(-3px);
       border-color: var(--border-hover);
-      box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.08), 0 4px 8px -4px rgba(15, 23, 42, 0.03);
+      box-shadow: 0 12px 24px -6px rgba(15, 23, 42, 0.08), 0 4px 8px -4px rgba(15, 23, 42, 0.03);
     }
 
-    .tile:hover::before { opacity: 1; }
+    .tool-tile:hover::before { opacity: 1; }
+
+    .tile-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
 
     .tile-icon {
-      width: 54px;
-      height: 54px;
-      border-radius: var(--radius-md);
+      width: 44px;
+      height: 44px;
+      border-radius: 11px;
       display: grid;
       place-items: center;
-      margin-bottom: 22px;
       transition: transform 0.2s ease;
     }
 
-    .tile:hover .tile-icon { transform: scale(1.06); }
+    .tool-tile:hover .tile-icon { transform: scale(1.06); }
+    .tile-icon svg { width: 22px; height: 22px; stroke-width: 2.2; }
 
-    .icon-split { background: #fff1f2; color: #e11d48; }
-    .icon-merge { background: #eff6ff; color: #2563eb; }
-    .icon-compress { background: #f0fdf4; color: #16a34a; }
+    /* Tool Specific Theme Accents */
+    .theme-split { --tile-accent: #e11d48; }
+    .theme-split .tile-icon { background: #fff1f2; color: #e11d48; }
 
-    .tile-icon svg { width: 28px; height: 28px; stroke-width: 2.2; }
+    .theme-merge { --tile-accent: #2563eb; }
+    .theme-merge .tile-icon { background: #eff6ff; color: #2563eb; }
 
-    .tile h2 {
-      font-size: 22px;
+    .theme-compress { --tile-accent: #059669; }
+    .theme-compress .tile-icon { background: #ecfdf5; color: #059669; }
+
+    .theme-pdf-word { --tile-accent: #1d4ed8; }
+    .theme-pdf-word .tile-icon { background: #eff6ff; color: #1d4ed8; }
+
+    .theme-word-pdf { --tile-accent: #0284c7; }
+    .theme-word-pdf .tile-icon { background: #f0f9ff; color: #0284c7; }
+
+    .theme-worksheet { --tile-accent: #9333ea; }
+    .theme-worksheet .tile-icon { background: #faf5ff; color: #9333ea; }
+
+    .theme-markdown { --tile-accent: #4f46e5; }
+    .theme-markdown .tile-icon { background: #eef2ff; color: #4f46e5; }
+
+    .theme-pdf-md { --tile-accent: #d97706; }
+    .theme-pdf-md .tile-icon { background: #fffbeb; color: #d97706; }
+
+    .theme-pdf-excel { --tile-accent: #059669; }
+    .theme-pdf-excel .tile-icon { background: #f0fdf4; color: #16a34a; }
+
+    .tile-category {
+      font-size: 10.5px;
       font-weight: 800;
-      letter-spacing: -0.02em;
-      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
     }
 
-    .tile p {
+    .tool-tile h2 {
+      font-size: 17.5px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+
+    .tool-tile p {
       color: var(--text-muted);
-      font-size: 14.5px;
-      line-height: 1.55;
+      font-size: 13px;
+      line-height: 1.5;
       flex-grow: 1;
-      margin-bottom: 24px;
+      margin-bottom: 18px;
     }
 
     .tile-footer {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding-top: 18px;
+      padding-top: 14px;
       border-top: 1px solid #f1f5f9;
       font-weight: 700;
-      font-size: 14px;
+      font-size: 12.5px;
     }
 
     .tile-footer span {
       color: var(--text);
       display: flex;
       align-items: center;
-      gap: 6px;
-      transition: gap 0.2s ease;
+      gap: 5px;
+      transition: gap 0.2s ease, color 0.15s ease;
     }
 
-    .tile:hover .tile-footer span { gap: 10px; color: var(--primary); }
+    .tool-tile:hover .tile-footer span {
+      gap: 8px;
+      color: var(--tile-accent, var(--primary));
+    }
 
     .tile-tag {
-      font-size: 12px;
-      font-weight: 600;
-      padding: 3px 9px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2.5px 8px;
       border-radius: 9999px;
       background: #f1f5f9;
       color: #475569;
     }
 
-    .features-band {
+    /* Pro Features Summary Bar */
+    .pro-features-bar {
       background: white;
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 36px 40px;
+      padding: 24px 30px;
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 32px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+      gap: 24px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+      margin-top: 10px;
     }
 
     .feature-item {
       display: flex;
-      gap: 16px;
-      align-items: flex-start;
+      gap: 14px;
+      align-items: center;
     }
 
     .feature-icon-bubble {
-      width: 42px;
-      height: 42px;
-      border-radius: 50%;
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
       background: #f8fafc;
       border: 1px solid var(--border);
       display: grid;
@@ -300,35 +428,58 @@
       color: var(--primary);
       flex-shrink: 0;
     }
-
-    .feature-icon-bubble svg { width: 20px; height: 20px; }
+    .feature-icon-bubble svg { width: 18px; height: 18px; }
 
     .feature-text h3 {
-      font-size: 16px;
+      font-size: 14.5px;
       font-weight: 700;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
+      color: var(--text);
+    }
+    .feature-text p {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      line-height: 1.4;
     }
 
-    .feature-text p {
-      font-size: 13.5px;
-      color: var(--text-muted);
-      line-height: 1.5;
+    /* Empty search state */
+    .empty-search {
+      display: none;
+      text-align: center;
+      padding: 60px 20px;
+      background: white;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-lg);
+      margin-bottom: 40px;
+    }
+    .empty-search h3 { font-size: 18px; font-weight: 800; margin-bottom: 6px; }
+    .empty-search p { font-size: 13.5px; color: var(--text-muted); margin-bottom: 16px; }
+    .clear-search-btn {
+      background: #f1f5f9;
+      border: 1px solid var(--border);
+      padding: 7px 16px;
+      border-radius: var(--radius-sm);
+      font-weight: 700;
+      font-size: 12.5px;
+      cursor: pointer;
     }
 
     footer {
       border-top: 1px solid var(--border);
-      padding: 24px;
+      padding: 20px;
       text-align: center;
       color: var(--text-muted);
-      font-size: 13.5px;
+      font-size: 13px;
       background: white;
+      margin-top: auto;
     }
 
     @media (max-width: 900px) {
-      .grid { grid-template-columns: 1fr; }
-      .features-band { grid-template-columns: 1fr; gap: 24px; padding: 28px; }
+      .top-control-bar { flex-direction: column; align-items: stretch; gap: 14px; }
+      .search-filter-wrap { max-width: 100%; }
+      .pro-features-bar { grid-template-columns: 1fr; gap: 18px; padding: 20px; }
       header { padding: 0 16px; }
-      nav a { padding: 6px 10px; font-size: 13px; }
+      nav a { padding: 5px 8px; font-size: 12px; }
     }
   </style>
 </head>
@@ -346,126 +497,181 @@
       <a href="/compress">Compress</a>
       <a href="/pdf-to-word">PDF to Word</a>
       <a href="/word-to-pdf">Word to PDF</a>
-      <a href="/worksheet-splitter">Work-sheet Splitter <span class="soon-badge" style="background:#faf5ff; color:#9333ea; border-color:#f3e8ff;">New</span></a>
-      <a href="/markdown-to-pdf">Markdown to PDF <span class="soon-badge" style="background:#eef2ff; color:#4f46e5; border-color:#e0e7ff;">New</span></a>
+      <a href="/worksheet-splitter">Work-sheet Splitter <span class="new-badge">New</span></a>
+      <a href="/markdown-to-pdf">Markdown to PDF <span class="new-badge" style="color: #4f46e5; border-color: #e0e7ff; background: #eef2ff;">New</span></a>
       <a href="/pdf-to-markdown">PDF to Markdown <span class="soon-badge">Soon</span></a>
       <a href="/pdf-to-excel">PDF to Excel <span class="soon-badge">Soon</span></a>
     </nav>
   </header>
 
   <main>
-    <section class="hero">
-      <div class="badge-pill">
-        <span class="badge-dot"></span>
-        Zero Retention · 100% In-Memory Processing
+    <!-- Top Utility & Search Bar (Replaces bulky hero with 0 wasted space) -->
+    <section class="top-control-bar">
+      <div class="title-group">
+        <h1>
+          PDF Tools Studio
+        </h1>
+        <p>
+          <span class="pulse-dot"></span>
+          100% In-Memory Processing &bull; Bank-Grade Privacy &bull; Zero Disk Storage
+        </p>
       </div>
-      <h1>Every PDF task,<br><span class="gradient-text">effortlessly solved.</span></h1>
-      <p>Lightning-fast PDF tools powered by Python and PyMuPDF. No subscription traps, no hidden limits, and your documents are never saved to disk.</p>
+
+      <div class="search-filter-wrap">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="toolSearch" class="search-input" type="text" placeholder="Search PDF tools (e.g. split, word, latex, cbse)..." autocomplete="off">
+        </div>
+      </div>
     </section>
 
-    <div class="section-title" style="margin-bottom: 18px;">
-      <h2 style="font-size: 20px; font-weight: 800;">Core PDF Tools</h2>
-      <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">Active &amp; Ready</span>
+    <!-- Quick Category Filter Pills -->
+    <div class="filter-pills">
+      <button class="pill-btn active" data-category="all" type="button">
+        All Tools <span class="pill-count">7</span>
+      </button>
+      <button class="pill-btn" data-category="organize" type="button">
+        Organize &amp; Optimize <span class="pill-count">3</span>
+      </button>
+      <button class="pill-btn" data-category="convert" type="button">
+        Convert Documents <span class="pill-count">3</span>
+      </button>
+      <button class="pill-btn" data-category="education" type="button">
+        Exams &amp; Worksheets <span class="pill-count">2</span>
+      </button>
+      <button class="pill-btn" data-category="upcoming" type="button">
+        Upcoming <span class="pill-count">2</span>
+      </button>
     </div>
 
-    <section class="grid" style="margin-bottom: 50px;">
-      <a class="tile" href="/split">
-        <div class="tile-icon icon-split">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    <!-- Empty Search State -->
+    <div id="emptySearch" class="empty-search">
+      <h3>No tools matched your search</h3>
+      <p>Try searching for "split", "word", "latex", "compress", or "cbse".</p>
+      <button id="clearSearchBtn" class="clear-search-btn" type="button">Clear Search</button>
+    </div>
+
+    <!-- Active Tools Grid (Immediately visible above the fold!) -->
+    <section id="toolsGrid" class="tools-grid">
+      <!-- 1. Split PDF -->
+      <a class="tool-tile theme-split" data-category="organize" data-keywords="split extract range visual pages crop" href="/split">
+        <div class="tile-header">
+          <div class="tile-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          </div>
+          <span class="tile-category">Organize</span>
         </div>
         <h2>Split PDF</h2>
         <p>Extract exact page ranges or click pages visually to create a new PDF or download a ZIP archive.</p>
         <div class="tile-footer">
-          <span class="tile-tag">Visual Grid</span>
+          <span class="tile-tag">Visual Grid &bull; Ranges</span>
           <span>Open Tool &rarr;</span>
         </div>
       </a>
 
-      <a class="tile" href="/merge">
-        <div class="tile-icon icon-merge">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="8" y="2" width="13" height="17" rx="2" stroke-linecap="round" stroke-linejoin="round"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v13a2 2 0 0 0 2 2h11"/></svg>
+      <!-- 2. Merge PDF -->
+      <a class="tool-tile theme-merge" data-category="organize" data-keywords="merge combine join reorder drag" href="/merge">
+        <div class="tile-header">
+          <div class="tile-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="8" y="2" width="13" height="17" rx="2" stroke-linecap="round" stroke-linejoin="round"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v13a2 2 0 0 0 2 2h11"/></svg>
+          </div>
+          <span class="tile-category">Organize</span>
         </div>
         <h2>Merge PDF</h2>
-        <p>Combine multiple PDFs into a single unified document with seamless drag-and-drop page reordering.</p>
+        <p>Combine multiple PDFs into a single unified document with drag-and-drop page reordering.</p>
         <div class="tile-footer">
           <span class="tile-tag">Drag &amp; Reorder</span>
           <span>Open Tool &rarr;</span>
         </div>
       </a>
 
-      <a class="tile" href="/compress">
-        <div class="tile-icon icon-compress">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 14l8-8 8 8M12 6v14"/></svg>
+      <!-- 3. Compress PDF -->
+      <a class="tool-tile theme-compress" data-category="organize" data-keywords="compress shrink reduce size small quality" href="/compress">
+        <div class="tile-header">
+          <div class="tile-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 14l8-8 8 8M12 6v14"/></svg>
+          </div>
+          <span class="tile-category">Optimize</span>
         </div>
         <h2>Compress PDF</h2>
-        <p>Shrink oversized scanned PDFs using four balanced presets with instant download.</p>
+        <p>Shrink oversized scanned PDFs using four balanced presets with instant browser download.</p>
         <div class="tile-footer">
-          <span class="tile-tag">4 Presets</span>
+          <span class="tile-tag">4 Presets &bull; Instant</span>
           <span>Open Tool &rarr;</span>
         </div>
       </a>
 
-      <a class="tile" href="/pdf-to-word">
-        <div class="tile-icon icon-word" style="background: #eff6ff; color: #2563eb;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+      <!-- 4. PDF to Word -->
+      <a class="tool-tile theme-pdf-word" data-category="convert" data-keywords="pdf to word docx convert editable microsoft word" href="/pdf-to-word">
+        <div class="tile-header">
+          <div class="tile-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+          </div>
+          <span class="tile-category">Convert</span>
         </div>
         <h2>PDF to Word</h2>
         <p>Convert PDF documents into editable Microsoft Word (.docx) files with preserved tables and layout.</p>
         <div class="tile-footer">
-          <span class="tile-tag" style="background: #eff6ff; color: #2563eb;">DOCX</span>
+          <span class="tile-tag">DOCX &bull; Multi-language</span>
           <span>Open Tool &rarr;</span>
         </div>
       </a>
 
-      <a class="tile" href="/word-to-pdf">
-        <div class="tile-icon icon-word-to-pdf" style="background: #eff6ff; color: #2563eb;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><path stroke-linecap="round" stroke-linejoin="round" d="M10 9l2 2 4-4"/></svg>
+      <!-- 5. Word to PDF -->
+      <a class="tool-tile theme-word-pdf" data-category="convert" data-keywords="word to pdf docx to pdf convert document" href="/word-to-pdf">
+        <div class="tile-header">
+          <div class="tile-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><path stroke-linecap="round" stroke-linejoin="round" d="M10 9l2 2 4-4"/></svg>
+          </div>
+          <span class="tile-category">Convert</span>
         </div>
         <h2>Word to PDF</h2>
         <p>Convert Microsoft Word (.docx) documents directly into standardized, print-ready PDF files.</p>
         <div class="tile-footer">
-          <span class="tile-tag" style="background: #eff6ff; color: #2563eb;">DOCX &rarr; PDF</span>
+          <span class="tile-tag">DOCX &rarr; PDF</span>
           <span>Open Tool &rarr;</span>
         </div>
       </a>
 
-      <a class="tile" href="/worksheet-splitter">
-        <div class="tile-icon icon-splitter" style="background: #faf5ff; color: #9333ea;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+      <!-- 6. Work-sheet Splitter -->
+      <a class="tool-tile theme-worksheet" data-category="education" data-keywords="worksheet splitter olympiad ssc cbse mcq assessment cuq" href="/worksheet-splitter">
+        <div class="tile-header">
+          <div class="tile-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+          </div>
+          <span class="new-badge">New</span>
         </div>
         <h2>Work-sheet Splitter</h2>
         <p>Split Olympiad, SSC, and CBSE textbooks into clean worksheets, assessment sheets, and objective questions.</p>
         <div class="tile-footer">
-          <span class="tile-tag" style="background: #faf5ff; color: #9333ea;">Olympiad &bull; SSC &bull; CBSE</span>
+          <span class="tile-tag">Olympiad &bull; SSC &bull; CBSE</span>
           <span>Open Tool &rarr;</span>
         </div>
       </a>
 
-      <a class="tile" href="/markdown-to-pdf">
-        <div class="tile-icon icon-markdown-pdf" style="background: #eef2ff; color: #4f46e5;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 9h1"/></svg>
+      <!-- 7. Markdown to PDF -->
+      <a class="tool-tile theme-markdown" data-category="education convert" data-keywords="markdown to pdf latex math katex exam question paper formula" href="/markdown-to-pdf">
+        <div class="tile-header">
+          <div class="tile-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 9h1"/></svg>
+          </div>
+          <span class="new-badge" style="color: #4f46e5; border-color: #e0e7ff; background: #eef2ff;">New</span>
         </div>
         <h2>Markdown to PDF</h2>
-        <p>Render Markdown or PDF documents with raw LaTeX math formulas into publication-quality vector PDFs with KaTeX and exam layouts.</p>
+        <p>Render Markdown or PDF documents containing raw LaTeX formulas into publication-quality vector PDFs.</p>
         <div class="tile-footer">
-          <span class="tile-tag" style="background: #eef2ff; color: #4f46e5;">Markdown &amp; PDF &bull; KaTeX</span>
+          <span class="tile-tag">Markdown &amp; PDF &bull; KaTeX</span>
           <span>Open Tool &rarr;</span>
         </div>
       </a>
-    </section>
 
-    <div class="section-title" style="margin-bottom: 18px;">
-      <h2 style="font-size: 20px; font-weight: 800;">Convert &amp; Export</h2>
-      <span class="soon-badge" style="font-size: 11px; padding: 3px 8px;">Coming Soon</span>
-    </div>
-
-    <section class="grid" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-bottom: 70px;">
-      <a class="tile" href="/pdf-to-markdown" style="background: #ffffff;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-          <div class="tile-icon icon-markdown" style="background: #faf5ff; color: #9333ea;">
+      <!-- 8. PDF to Markdown (Upcoming) -->
+      <a class="tool-tile theme-pdf-md" data-category="upcoming" data-keywords="pdf to markdown extract headings text llm" href="/pdf-to-markdown">
+        <div class="tile-header">
+          <div class="tile-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="5" width="18" height="14" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M7 15V9l3 3 3-3v6m4-6v6m0 0l-2-2m2 2l2-2"/></svg>
           </div>
-          <span class="soon-badge">Coming Soon</span>
+          <span class="soon-badge">Soon</span>
         </div>
         <h2>PDF to Markdown</h2>
         <p>Extract structured headings, lists, tables, and code snippets into clean Markdown (.md) for AI and docs.</p>
@@ -475,12 +681,13 @@
         </div>
       </a>
 
-      <a class="tile" href="/pdf-to-excel" style="background: #ffffff;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-          <div class="tile-icon icon-excel" style="background: #f0fdf4; color: #16a34a;">
+      <!-- 9. PDF to Excel (Upcoming) -->
+      <a class="tool-tile theme-pdf-excel" data-category="upcoming" data-keywords="pdf to excel spreadsheet tables xlsx" href="/pdf-to-excel">
+        <div class="tile-header">
+          <div class="tile-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
           </div>
-          <span class="soon-badge">Coming Soon</span>
+          <span class="soon-badge">Soon</span>
         </div>
         <h2>PDF to Excel</h2>
         <p>Detect tabular data and financial statements in PDF files and export them to Excel (.xlsx) spreadsheets.</p>
@@ -491,14 +698,15 @@
       </a>
     </section>
 
-    <section class="features-band">
+    <!-- Pro Features Band (Compact at the bottom) -->
+    <section class="pro-features-bar">
       <div class="feature-item">
         <div class="feature-icon-bubble">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
         </div>
         <div class="feature-text">
           <h3>Native C-Engine Speed</h3>
-          <p>Powered by PyMuPDF and pypdf for blazing performance across multi-page documents.</p>
+          <p>Powered by PyMuPDF &amp; pypdf for instant processing.</p>
         </div>
       </div>
 
@@ -508,7 +716,7 @@
         </div>
         <div class="feature-text">
           <h3>Bank-Grade Privacy</h3>
-          <p>Files are processed solely in temporary RAM and never written to permanent disk storage.</p>
+          <p>Processed in temporary RAM and never stored to disk.</p>
         </div>
       </div>
 
@@ -517,8 +725,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
         <div class="feature-text">
-          <h3>No Paywalls</h3>
-          <p>Full suite functionality without document watermarks, page caps, or recurring subscriptions.</p>
+          <h3>Zero Paywalls &amp; No Ads</h3>
+          <p>Full suite functionality without limits or watermarks.</p>
         </div>
       </div>
     </section>
@@ -527,5 +735,72 @@
   <footer>
     Team PDF Tools &bull; Running live on Render &bull; Private &amp; Open Source
   </footer>
+
+  <script>
+    // Live Search and Category Filter Engine
+    const searchInput = document.getElementById('toolSearch');
+    const filterPills = document.querySelectorAll('.pill-btn');
+    const toolTiles = document.querySelectorAll('.tool-tile');
+    const emptySearch = document.getElementById('emptySearch');
+    const clearBtn = document.getElementById('clearSearchBtn');
+
+    let currentCategory = 'all';
+
+    function filterTools() {
+      const query = searchInput.value.trim().toLowerCase();
+      let visibleCount = 0;
+
+      toolTiles.forEach(tile => {
+        const cat = tile.dataset.category || '';
+        const keywords = (tile.dataset.keywords || '').toLowerCase();
+        const title = tile.querySelector('h2').textContent.toLowerCase();
+        const desc = tile.querySelector('p').textContent.toLowerCase();
+
+        const matchesCategory = (currentCategory === 'all') || cat.includes(currentCategory);
+        const matchesQuery = !query || title.includes(query) || desc.includes(query) || keywords.includes(query);
+
+        if (matchesCategory && matchesQuery) {
+          tile.style.display = 'flex';
+          visibleCount++;
+        } else {
+          tile.style.display = 'none';
+        }
+      });
+
+      if (emptySearch) {
+        emptySearch.style.display = visibleCount === 0 ? 'block' : 'none';
+      }
+    }
+
+    searchInput.addEventListener('input', filterTools);
+
+    filterPills.forEach(pill => {
+      pill.addEventListener('click', () => {
+        filterPills.forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        currentCategory = pill.dataset.category;
+        filterTools();
+      });
+    });
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        currentCategory = 'all';
+        filterPills.forEach(p => p.classList.toggle('active', p.dataset.category === 'all'));
+        filterTools();
+        searchInput.focus();
+      });
+    }
+
+    // Keyboard shortcut '/' or 'Ctrl+K' to focus search
+    window.addEventListener('keydown', (e) => {
+      if ((e.key === '/' && document.activeElement !== searchInput) || ((e.ctrlKey || e.metaKey) && e.key === 'k')) {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+      }
+    });
+  </script>
 </body>
 </html>
