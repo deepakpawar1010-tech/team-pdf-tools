@@ -278,17 +278,22 @@ def merge_pdf():
         uploads = request.files.getlist("files")
         if len(uploads) < 2:
             raise ValueError("Choose at least two PDF files to merge.")
-        writer = PdfWriter()
+        out_doc = fitz.open()
         for upload in uploads:
             valid_pdf(upload)
-            reader = PdfReader(upload.stream)
-            for page in reader.pages:
-                writer.add_page(page)
-        result = io.BytesIO()
-        writer.write(result)
-        result.seek(0)
-        return send_file(result, as_attachment=True, download_name="merged.pdf", mimetype="application/pdf")
+            sub_doc = fitz.open(stream=upload.read(), filetype="pdf")
+            out_doc.insert_pdf(sub_doc)
+            sub_doc.close()
+        pdf_bytes = out_doc.tobytes(deflate=True, garbage=3)
+        out_doc.close()
+        return send_file(
+            io.BytesIO(pdf_bytes),
+            as_attachment=True,
+            download_name="merged.pdf",
+            mimetype="application/pdf",
+        )
     except Exception as error:
+        logger.exception("Merge PDF failed: %s", error)
         return jsonify({"error": str(error)}), 400
 
 

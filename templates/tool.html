@@ -327,6 +327,106 @@
     }
     .icon-btn:hover { border-color: var(--primary); color: var(--primary); transform: scale(1.1); }
 
+    /* Merge Mode Add Files & Order Styling */
+    .file-order-badge {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #2563eb;
+      color: white;
+      font-size: 11.5px;
+      font-weight: 800;
+      display: grid;
+      place-items: center;
+      z-index: 5;
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+    }
+
+    .file-placeholder-thumb {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 700;
+      height: 100%;
+    }
+
+    .add-more-header-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 16px;
+      background: #2563eb;
+      color: white;
+      border: 0;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+    }
+    .add-more-header-btn:hover {
+      background: #1d4ed8;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+    }
+
+    .file-card.add-file-card {
+      border: 2px dashed #93c5fd;
+      background: #f8faff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 285px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      padding: 24px 16px;
+      text-align: center;
+      user-select: none;
+    }
+    .file-card.add-file-card:hover, .file-card.add-file-card.drag-over {
+      border-color: #2563eb;
+      background: #eff6ff;
+      transform: translateY(-3px);
+      box-shadow: 0 10px 22px -6px rgba(37, 99, 235, 0.2);
+    }
+    .add-file-icon-wrap {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      background: #dbeafe;
+      color: #2563eb;
+      display: grid;
+      place-items: center;
+      margin-bottom: 14px;
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
+    }
+    .file-card.add-file-card:hover .add-file-icon-wrap {
+      background: #2563eb;
+      color: white;
+      transform: scale(1.12);
+    }
+    .add-file-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #1e40af;
+      margin-bottom: 4px;
+    }
+    .add-file-sub {
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1.4;
+    }
+
     /* Split Range Preview */
     .range-preview {
       max-width: 1040px;
@@ -831,6 +931,7 @@
           Choose {% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter'] %}PDF Files{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Markdown or PDF File{% else %}File{% endif %}
         </div>
         <input id="files" type="file" accept="{% if tool=='word-to-pdf' %}.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}.pdf,.md,.markdown,.txt,.tex,application/pdf,text/markdown,text/plain{% else %}application/pdf{% endif %}" {% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter'] %}multiple{% endif %}>
+        <input id="extraFilesInput" type="file" accept="application/pdf" multiple style="display: none;">
       </label>
 
       <div id="empty" class="empty">
@@ -841,8 +942,17 @@
 
       <div id="mergeArea" class="hidden">
         <div class="section-title">
-          <h2>Document Queue</h2>
-          <span class="hint">Drag cards to reorder files</span>
+          <div>
+            <h2>Document Queue (<span id="mergeFileCount">0</span>)</h2>
+            <span class="hint">Drag cards to reorder files before merging</span>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <button id="clearAllMergeFiles" class="small-btn" type="button" style="color: var(--text-muted); background: white; border: 1px solid var(--border); padding: 8px 14px; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;">Clear All</button>
+            <button id="addMoreFilesHeaderBtn" class="add-more-header-btn" type="button" title="Add extra PDF files">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+              <span>Add Extra PDFs</span>
+            </button>
+          </div>
         </div>
         <div id="fileGrid" class="file-grid"></div>
       </div>
@@ -1218,6 +1328,25 @@
         <p class="hint" style="line-height: 1.6; margin-top: 10px;">
           Converts Markdown documents and renders all embedded LaTeX math formulas into publication-quality vector PDFs.
         </p>
+        {% elif tool=='merge' %}
+        <label class="field-label">Merge Queue</label>
+        <div style="background: white; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 34px; height: 34px; border-radius: 8px; background: #eff6ff; color: #2563eb; display: grid; place-items: center; font-weight: 800; font-size: 11px;">PDF</div>
+            <div>
+              <div id="sideMergeCount" style="font-size: 13.5px; font-weight: 800; color: var(--text);">0 files</div>
+              <div id="sideMergeSize" style="font-size: 11.5px; color: var(--text-muted);">0 MB total</div>
+            </div>
+          </div>
+          <button id="addMoreFilesSideBtn" class="add-more-header-btn" type="button" title="Add extra PDF files" style="padding: 6px 12px; font-size: 12px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            <span>Add More</span>
+          </button>
+        </div>
+
+        <p class="hint" style="line-height: 1.6; margin-top: 10px;">
+          Files are combined in the exact sequence shown on the left. Drag cards to reorder, or click the <strong>+</strong> symbol to add more PDF documents anytime.
+        </p>
         {% else %}
         <p class="hint" style="line-height: 1.6; margin-top: 10px;">
           Upload multiple PDF documents. Drag and drop the thumbnail cards on the left to reorder them before merging.
@@ -1225,7 +1354,7 @@
         {% endif %}
       </div>
 
-      <button id="submit" class="primary" {% if tool in ['pdf-to-word', 'word-to-pdf'] %}style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);"{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}style="background: linear-gradient(135deg, #9333ea 0%, #a855f7 100%); box-shadow: 0 4px 14px rgba(147, 51, 234, 0.3);"{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}style="background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%); box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);"{% endif %}>
+      <button id="submit" class="primary" {% if tool=='merge' %}style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);"{% elif tool in ['pdf-to-word', 'word-to-pdf'] %}style="background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);"{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}style="background: linear-gradient(135deg, #9333ea 0%, #a855f7 100%); box-shadow: 0 4px 14px rgba(147, 51, 234, 0.3);"{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}style="background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%); box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);"{% endif %}>
         <span>{% if tool=='pdf-to-word' %}Convert to Word (.docx){% elif tool=='word-to-pdf' %}Convert to PDF (.pdf){% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Split Worksheets (.zip){% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Render to PDF (.pdf){% else %}{{ tool|title }} PDF{% endif %}</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>
       </button>
@@ -1240,6 +1369,7 @@
     const state = {
       files: [],
       previews: [],           // For merge mode or server fallback: [{ fileIndex, page, pages, name, data }]
+      filePreviewMap: new Map(), // For merge mode: cacheKey -> { pages, data }
       previewCache: new Map(), // For split mode: pageNum -> dataURL
       renderingPages: new Set(),
       pdfDoc: null,
@@ -1548,37 +1678,58 @@
         }
       }
 
-      // In Merge Mode: Fast 1-page-per-file preview
+      // In Merge Mode: Fast 1-page-per-file preview with per-file caching
       if (mode === 'merge' && window.pdfjsLib && state.files.length > 0) {
         try {
-          state.previews = [];
+          if (!state.filePreviewMap) state.filePreviewMap = new Map();
           show('Reading documents…');
+          renderFiles(); // immediately display existing thumbnails and new placeholder cards
           for (let fileIndex = 0; fileIndex < state.files.length; fileIndex++) {
             const file = state.files[fileIndex];
-            const buffer = await file.arrayBuffer();
-            const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
-            const total = doc.numPages;
+            const cacheKey = file.name + '_' + file.size + '_' + (file.lastModified || 0);
+            if (state.filePreviewMap.has(cacheKey)) continue;
 
-            const page = await doc.getPage(1);
-            const vp = page.getViewport({ scale: 1.0 });
-            const longest = Math.max(vp.width, vp.height) || 1;
-            const scale = Math.min(1.0, 200 / longest);
-            const scaledVp = page.getViewport({ scale });
+            try {
+              const buffer = await file.arrayBuffer();
+              const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+              const total = doc.numPages;
 
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.round(scaledVp.width);
-            canvas.height = Math.round(scaledVp.height);
-            const ctx = canvas.getContext('2d');
-            await page.render({ canvasContext: ctx, viewport: scaledVp }).promise;
+              const page = await doc.getPage(1);
+              const vp = page.getViewport({ scale: 1.0 });
+              const longest = Math.max(vp.width, vp.height) || 1;
+              const scale = Math.min(1.0, 200 / longest);
+              const scaledVp = page.getViewport({ scale });
 
-            state.previews.push({
-              fileIndex: fileIndex,
-              page: 1,
-              pages: total,
-              name: file.name,
-              data: canvas.toDataURL('image/jpeg', 0.68)
-            });
+              const canvas = document.createElement('canvas');
+              canvas.width = Math.round(scaledVp.width);
+              canvas.height = Math.round(scaledVp.height);
+              const ctx = canvas.getContext('2d');
+              await page.render({ canvasContext: ctx, viewport: scaledVp }).promise;
+
+              state.filePreviewMap.set(cacheKey, {
+                page: 1,
+                pages: total,
+                name: file.name,
+                data: canvas.toDataURL('image/jpeg', 0.68)
+              });
+            } catch (err) {
+              console.warn('Failed preview for', file.name, err);
+              state.filePreviewMap.set(cacheKey, {
+                page: 1,
+                pages: '?',
+                name: file.name,
+                data: ''
+              });
+            }
+            renderFiles(); // update progressively as each new file thumbnail finishes
           }
+          state.previews = state.files.map((file, i) => {
+            const cacheKey = file.name + '_' + file.size + '_' + (file.lastModified || 0);
+            return {
+              fileIndex: i,
+              ...(state.filePreviewMap.get(cacheKey) || { pages: '?', data: '' })
+            };
+          });
           renderFiles();
           show('');
           updateAreas();
@@ -2137,21 +2288,58 @@ Difficulty Level: Easy`;
 
     function renderFiles() {
       const grid = $('fileGrid');
-      grid.innerHTML = state.files.map((f, i) => {
-        const p = state.previews.find(x => x.fileIndex === i);
+      if (!grid) return;
+
+      const countEl = $('mergeFileCount');
+      if (countEl) countEl.textContent = state.files.length;
+      const sideCountEl = $('sideMergeCount');
+      if (sideCountEl) sideCountEl.textContent = `${state.files.length} file${state.files.length === 1 ? '' : 's'}`;
+      const sideSizeEl = $('sideMergeSize');
+      if (sideSizeEl) {
+        const totalBytes = state.files.reduce((sum, f) => sum + f.size, 0);
+        sideSizeEl.textContent = bytes(totalBytes);
+      }
+
+      let cardsHtml = state.files.map((f, i) => {
+        const cacheKey = f.name + '_' + f.size + '_' + (f.lastModified || 0);
+        const p = (state.filePreviewMap && state.filePreviewMap.get(cacheKey)) || state.previews.find(x => x.fileIndex === i);
         return `
           <article class="file-card" draggable="true" data-index="${i}">
+            <div class="file-order-badge" title="Merge position ${i + 1}">${i + 1}</div>
             <div class="thumb-wrap">
-              ${p ? `<img src="${p.data}" alt="Preview of ${escapeHtml(f.name)}">` : '<span>PDF</span>'}
+              ${p && p.data ? `<img src="${p.data}" alt="Preview of ${escapeHtml(f.name)}">` : `
+                <div class="file-placeholder-thumb">
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                  </svg>
+                  <span>PDF</span>
+                </div>
+              `}
             </div>
             <div class="file-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
-            <div class="file-meta">${p?.pages || '?'} pages &bull; ${bytes(f.size)}</div>
+            <div class="file-meta">${p?.pages ? `${p.pages} page${p.pages === 1 ? '' : 's'}` : 'PDF'} &bull; ${bytes(f.size)}</div>
             <div class="card-actions">
               <button class="icon-btn remove-file" data-index="${i}" title="Remove file" type="button">&times;</button>
             </div>
           </article>
         `;
       }).join('');
+
+      cardsHtml += `
+        <article class="file-card add-file-card" id="addMoreFilesCard" role="button" tabindex="0" title="Click or drop PDFs to add extra files">
+          <div class="add-file-body">
+            <div class="add-file-icon-wrap">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+              </svg>
+            </div>
+            <strong class="add-file-title">+ Add Extra PDFs</strong>
+            <span class="add-file-sub">Click to browse or drop more files here</span>
+          </div>
+        </article>
+      `;
+
+      grid.innerHTML = cardsHtml;
     }
 
     function renderPages() {
@@ -2347,6 +2535,8 @@ Difficulty Level: Easy`;
             state.files.push(f);
           }
         });
+      } else if (mode === 'merge') {
+        selected.forEach(f => state.files.push(f));
       } else {
         state.files = selected;
       }
@@ -2355,6 +2545,44 @@ Difficulty Level: Easy`;
       if (!state.files.length) return;
       await loadPreviews();
     });
+
+    const extraFilesInput = $('extraFilesInput');
+    if (extraFilesInput) {
+      extraFilesInput.addEventListener('change', async () => {
+        const selected = [...extraFilesInput.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+        extraFilesInput.value = '';
+        if (!selected.length) return;
+        selected.forEach(f => state.files.push(f));
+        updateAreas();
+        await loadPreviews();
+      });
+    }
+
+    const addHeaderBtn = $('addMoreFilesHeaderBtn');
+    if (addHeaderBtn) {
+      addHeaderBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (extraFilesInput) extraFilesInput.click();
+      });
+    }
+
+    const addSideBtn = $('addMoreFilesSideBtn');
+    if (addSideBtn) {
+      addSideBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (extraFilesInput) extraFilesInput.click();
+      });
+    }
+
+    const clearAllMergeBtn = $('clearAllMergeFiles');
+    if (clearAllMergeBtn) {
+      clearAllMergeBtn.addEventListener('click', () => {
+        state.files = [];
+        state.previews = [];
+        if (state.filePreviewMap) state.filePreviewMap.clear();
+        updateAreas();
+      });
+    }
 
     $('drop').addEventListener('click', (e) => {
       if (e.target !== filesInput) filesInput.click();
@@ -2397,6 +2625,9 @@ Difficulty Level: Easy`;
           f.type.includes('text') ||
           f.type.includes('markdown')
         );
+      } else if (mode === 'merge') {
+        const dropped = [...ev.dataTransfer.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+        dropped.forEach(f => state.files.push(f));
       } else {
         state.files = [...ev.dataTransfer.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
       }
@@ -2406,16 +2637,22 @@ Difficulty Level: Easy`;
 
     if (mode === 'merge') {
       $('fileGrid').addEventListener('click', e => {
+        if (e.target.closest('#addMoreFilesCard') || e.target.closest('.add-file-card')) {
+          if (extraFilesInput) extraFilesInput.click();
+          return;
+        }
         const b = e.target.closest('.remove-file');
         if (!b) return;
-        state.files.splice(Number(b.dataset.index), 1);
-        state.previews = [];
+        const idx = Number(b.dataset.index);
+        state.files.splice(idx, 1);
         updateAreas();
-        if (state.files.length) loadPreviews();
+        if (state.files.length) {
+          renderFiles();
+        }
       });
 
       $('fileGrid').addEventListener('dragstart', e => {
-        const card = e.target.closest('.file-card');
+        const card = e.target.closest('.file-card:not(.add-file-card)');
         if (!card) return;
         state.dragIndex = Number(card.dataset.index);
         card.classList.add('dragging');
@@ -2430,23 +2667,47 @@ Difficulty Level: Easy`;
 
       $('fileGrid').addEventListener('dragover', e => {
         e.preventDefault();
-        const card = e.target.closest('.file-card');
+        if (e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
+          const addCard = $('addMoreFilesCard');
+          if (addCard) addCard.classList.add('drag-over');
+          return;
+        }
+        const card = e.target.closest('.file-card:not(.add-file-card)');
         if (card && Number(card.dataset.index) !== state.dragIndex) {
           document.querySelectorAll('.file-card').forEach(x => x.classList.remove('over'));
           card.classList.add('over');
         }
       });
 
-      $('fileGrid').addEventListener('drop', e => {
+      $('fileGrid').addEventListener('dragleave', e => {
+        const addCard = $('addMoreFilesCard');
+        if (addCard && !addCard.contains(e.relatedTarget)) {
+          addCard.classList.remove('drag-over');
+        }
+      });
+
+      $('fileGrid').addEventListener('drop', async e => {
         e.preventDefault();
-        const card = e.target.closest('.file-card');
+        const addCard = $('addMoreFilesCard');
+        if (addCard) addCard.classList.remove('drag-over');
+
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          const dropped = [...e.dataTransfer.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+          if (dropped.length > 0) {
+            dropped.forEach(f => state.files.push(f));
+            updateAreas();
+            await loadPreviews();
+            return;
+          }
+        }
+
+        const card = e.target.closest('.file-card:not(.add-file-card)');
         if (!card || state.dragIndex === null) return;
         const target = Number(card.dataset.index);
         if (target !== state.dragIndex) {
           const [moved] = state.files.splice(state.dragIndex, 1);
           state.files.splice(target, 0, moved);
-          state.previews = [];
-          loadPreviews();
+          renderFiles();
         }
         document.querySelectorAll('.file-card').forEach(x => x.classList.remove('over'));
       });
