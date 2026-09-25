@@ -16,7 +16,8 @@ import threading
 import subprocess
 from pathlib import Path
 
-import pymupdf as fitz
+import pymupdf
+fitz = pymupdf
 from flask import Flask, jsonify, render_template, request, send_file, after_this_request
 from pypdf import PdfReader, PdfWriter
 
@@ -79,6 +80,12 @@ COMING_SOON = {
         "icon": "excel"
     }
 }
+
+
+@app.get("/healthz")
+@app.get("/api/health")
+def healthz():
+    return jsonify({"status": "healthy", "service": "team-pdf-tools"}), 200
 
 
 @app.get("/<tool>")

@@ -4,8 +4,8 @@ PyMuPDF>=1.24,<2.0
 gunicorn>=21.2.0
 pdf2docx>=0.5.13
 python-docx>=1.2.0
-comtypes>=1.4.16
-docx2pdf>=0.1.8
+comtypes>=1.4.16; platform_system == "Windows"
+docx2pdf>=0.1.8; platform_system == "Windows"
 pywin32>=308; platform_system == "Windows"
 rapidocr-onnxruntime>=1.4.0
 onnxruntime>=1.18.0
