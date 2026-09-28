@@ -99,13 +99,25 @@ def tool_page(tool: str):
 
 @app.post("/api/info")
 def info():
+    input_path = None
     try:
         upload = request.files.get("file")
         valid_pdf(upload)
-        reader = PdfReader(upload.stream)
-        return jsonify({"pages": len(reader.pages), "name": upload.filename})
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
+            input_path = in_tmp.name
+        upload.save(input_path)
+        doc = fitz.open(input_path)
+        page_count = len(doc)
+        doc.close()
+        return jsonify({"pages": page_count, "name": upload.filename})
     except Exception as error:
         return jsonify({"error": str(error)}), 400
+    finally:
+        if input_path and os.path.exists(input_path):
+            try:
+                os.remove(input_path)
+            except Exception:
+                pass
 
 
 @app.post("/api/worksheet-info")
@@ -176,7 +188,7 @@ def previews():
                 if mode == "merge":
                     page_numbers = [1] if page_count else []
                 elif requested_pages is None:
-                    page_numbers = list(range(1, page_count + 1))
+                    page_numbers = list(range(1, min(13, page_count + 1)))
                 else:
                     page_numbers = sorted(p for p in requested_pages if p <= page_count)
 
@@ -210,13 +222,20 @@ def previews():
 
 @app.post("/api/split")
 def split_pdf():
+    input_path = None
+    output_path = None
     try:
         upload = request.files.get("file")
         valid_pdf(upload)
         ranges = request.form.get("ranges", "")
 
-        file_bytes = upload.read()
-        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        # Stream upload directly to disk (supports 500MB+ files with zero RAM bloating)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
+            input_path = in_tmp.name
+        upload.save(input_path)
+
+        # Open file directly from disk via OS memory-mapping (virtually 0 MB RAM)
+        doc = fitz.open(input_path)
         total_pages = len(doc)
 
         selected_ranges = []
@@ -241,66 +260,156 @@ def split_pdf():
 
         combine = request.form.get("combine", "true").lower() == "true"
         if combine:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as out_tmp:
+                output_path = out_tmp.name
+
             out_doc = fitz.open()
             for start, end in selected_ranges:
                 out_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
-            pdf_bytes = out_doc.tobytes(deflate=True, garbage=3)
+            out_doc.save(output_path, garbage=3, deflate=True)
             out_doc.close()
             doc.close()
+            del out_doc
+            del doc
+            gc.collect()
+
+            @after_this_request
+            def cleanup_split_combined(response):
+                try:
+                    if input_path and os.path.exists(input_path):
+                        os.remove(input_path)
+                    if output_path and os.path.exists(output_path):
+                        os.remove(output_path)
+                except Exception:
+                    pass
+                return response
+
             return send_file(
-                io.BytesIO(pdf_bytes),
+                output_path,
                 as_attachment=True,
                 download_name=output_name(upload.filename, "selected-pages"),
                 mimetype="application/pdf",
             )
 
-        # Unmerged: Create individual PDF files bundled into a ZIP archive
-        archive = io.BytesIO()
-        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
+        # Unmerged: Create individual PDF files bundled into a ZIP archive on disk
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as zip_tmp:
+            output_path = zip_tmp.name
+
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for number, (start, end) in enumerate(selected_ranges, start=1):
                 sub_doc = fitz.open()
                 sub_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
-                sub_bytes = sub_doc.tobytes(deflate=True, garbage=3)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as sub_tmp:
+                    sub_path = sub_tmp.name
+                sub_doc.save(sub_path, garbage=3, deflate=True)
                 sub_doc.close()
+                del sub_doc
                 suffix = f"page-{start}" if start == end else f"pages-{start}-{end}"
                 file_entry_name = output_name(upload.filename, f"{number:02d}_{suffix}")
-                output.writestr(file_entry_name, sub_bytes)
+                zf.write(sub_path, arcname=file_entry_name)
+                try:
+                    os.remove(sub_path)
+                except Exception:
+                    pass
 
         doc.close()
-        archive.seek(0)
+        del doc
+        gc.collect()
+
+        @after_this_request
+        def cleanup_split_zip(response):
+            try:
+                if input_path and os.path.exists(input_path):
+                    os.remove(input_path)
+                if output_path and os.path.exists(output_path):
+                    os.remove(output_path)
+            except Exception:
+                pass
+            return response
+
         return send_file(
-            archive,
+            output_path,
             as_attachment=True,
             download_name=output_name(upload.filename, "split-files").replace(".pdf", ".zip"),
             mimetype="application/zip",
         )
     except Exception as error:
         logger.exception("Split PDF failed: %s", error)
+        if input_path and os.path.exists(input_path):
+            try:
+                os.remove(input_path)
+            except Exception:
+                pass
+        if output_path and os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except Exception:
+                pass
         return jsonify({"error": str(error)}), 400
 
 
 @app.post("/api/merge")
 def merge_pdf():
+    input_paths = []
+    output_path = None
     try:
         uploads = request.files.getlist("files")
         if len(uploads) < 2:
             raise ValueError("Choose at least two PDF files to merge.")
+
         out_doc = fitz.open()
         for upload in uploads:
             valid_pdf(upload)
-            sub_doc = fitz.open(stream=upload.read(), filetype="pdf")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
+                tmp_path = in_tmp.name
+            upload.save(tmp_path)
+            input_paths.append(tmp_path)
+            sub_doc = fitz.open(tmp_path)
             out_doc.insert_pdf(sub_doc)
             sub_doc.close()
-        pdf_bytes = out_doc.tobytes(deflate=True, garbage=3)
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as out_tmp:
+            output_path = out_tmp.name
+
+        out_doc.save(output_path, garbage=3, deflate=True)
         out_doc.close()
+        del out_doc
+        gc.collect()
+
+        @after_this_request
+        def cleanup_merge(response):
+            for p in input_paths:
+                try:
+                    if os.path.exists(p):
+                        os.remove(p)
+                except Exception:
+                    pass
+            try:
+                if output_path and os.path.exists(output_path):
+                    os.remove(output_path)
+            except Exception:
+                pass
+            return response
+
         return send_file(
-            io.BytesIO(pdf_bytes),
+            output_path,
             as_attachment=True,
             download_name="merged.pdf",
             mimetype="application/pdf",
         )
     except Exception as error:
         logger.exception("Merge PDF failed: %s", error)
+        for p in input_paths:
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+        if output_path and os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except Exception:
+                pass
         return jsonify({"error": str(error)}), 400
 
 

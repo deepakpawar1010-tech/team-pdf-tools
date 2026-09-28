@@ -1656,9 +1656,16 @@
         try {
           const file = state.files[0];
           show('Reading document…');
-          const buffer = await file.arrayBuffer();
-          state.fileBytes = buffer;
-          const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
+          let doc;
+          if (file.size > 40 * 1024 * 1024) {
+            // For large files (>40MB), use Blob URL to stream pages on-demand without copying to JS heap
+            const blobUrl = URL.createObjectURL(file);
+            doc = await pdfjsLib.getDocument(blobUrl).promise;
+          } else {
+            const buffer = await file.arrayBuffer();
+            state.fileBytes = buffer;
+            doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+          }
           state.pdfDoc = doc;
           state.pageCount = doc.numPages;
           state.ranges = [{ from: 1, to: state.pageCount }];
@@ -2907,10 +2914,12 @@ Difficulty Level: Easy`;
 
       setBusy(true);
 
-      // 1. Client-Side Split: Instant processing, 0 upload, works for 1GB+ files
-      if (mode === 'split' && window.PDFLib && state.files[0] && $('combine').checked) {
+      // 1. Client-Side Split: Instant processing for files under 30MB
+      const splitFile = state.files[0];
+      const isLargeSplit = splitFile && splitFile.size > 30 * 1024 * 1024;
+      if (mode === 'split' && window.PDFLib && splitFile && $('combine').checked && !isLargeSplit) {
         try {
-          const file = state.files[0];
+          const file = splitFile;
           let rangesList = [];
           if (state.splitView === 'range') {
             const norm = state.ranges.map(normalizeRange);
@@ -3028,6 +3037,13 @@ Difficulty Level: Easy`;
           show(fileCount > 1 ? `Extracting SSC MCQs across ${fileCount} textbooks into ZIP…` : 'Extracting SSC Multiple Choice Questions into ZIP archive…');
         } else {
           show(fileCount > 1 ? `Splitting worksheets across ${fileCount} textbooks into ZIP…` : 'Splitting worksheets and packaging into ZIP archive…');
+        }
+      } else if (mode === 'split') {
+        const splitFile = state.files[0];
+        if (splitFile && splitFile.size > 30 * 1024 * 1024) {
+          show('Processing large PDF (streaming directly to disk)…');
+        } else {
+          show('Splitting PDF pages…');
         }
       } else {
         show('Processing PDF…');
