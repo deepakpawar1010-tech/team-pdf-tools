@@ -1189,12 +1189,12 @@
           Merge extracted pages into one PDF
         </label>
         {% elif tool=='compress' %}
-        <label class="field-label" for="quality">Compression Quality &amp; Clarity</label>
+        <label class="field-label" for="quality">Compression Quality</label>
         <select id="quality" class="quality">
-          <option value="best" selected>💻 Laptop &amp; Desktop HD — Crisp clarity (Target up to 45 MB)</option>
-          <option value="ultra">🌟 Ultra HD / Retina 4K — Maximum sharpness (Near-original)</option>
-          <option value="balanced">📱 Balanced — Clean clarity for mobile &amp; tablet</option>
-          <option value="small">⚡ Compact — Smallest file size (Fast email download)</option>
+          <option value="small">Smallest file (Fastest download)</option>
+          <option value="balanced" selected>Balanced (Recommended)</option>
+          <option value="best">High Quality (Minimal compression)</option>
+          <option value="ultra">Ultra Clarity (Near-original)</option>
         </select>
 
         <div id="compressBatchInfo" class="hidden" style="margin-top: 16px; padding: 14px 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-md);">
@@ -3035,25 +3035,17 @@ Difficulty Level: Easy`;
         }
       }
 
-      // 2. Client-Side Compress: Instant in-browser compression with live page numbers and HD laptop clarity
+      // 2. Client-Side Compress: For single files under 30MB (batch and large files route to server streaming)
       const isBatchCompress = mode === 'compress' && state.files.length > 1;
-      const isLargeCompress = state.files[0] && state.files[0].size > 50 * 1024 * 1024;
+      const isLargeCompress = state.files[0] && state.files[0].size > 30 * 1024 * 1024;
       if (mode === 'compress' && !isBatchCompress && !isLargeCompress && window.PDFLib && window.pdfjsLib && state.files[0]) {
         try {
           const file = state.files[0];
           show('Preparing compression in browser…');
           const qualityPreset = $('quality').value;
-          
-          // Enhanced presets: high renderScale (1.8-2.5x) ensures razor-sharp laptop clarity (1080p/2K/Retina)
-          const presetConfig = {
-            small:    { scale: 1.2, quality: 0.65 },
-            balanced: { scale: 1.6, quality: 0.78 },
-            best:     { scale: 2.0, quality: 0.84 },
-            ultra:    { scale: 2.5, quality: 0.92 }
-          };
-          const cfg = presetConfig[qualityPreset] || presetConfig.best;
-          const renderScale = cfg.scale;
-          const quality = cfg.quality;
+          const qualityMap = { small: 0.55, balanced: 0.72, best: 0.88, ultra: 0.96 };
+          const quality = qualityMap[qualityPreset] || parseFloat(qualityPreset) || 0.72;
+          const renderScale = quality < 0.6 ? 0.85 : quality > 0.94 ? 1.55 : quality > 0.8 ? 1.25 : 1;
 
           const buffer = state.fileBytes || await file.arrayBuffer();
           const srcPdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
