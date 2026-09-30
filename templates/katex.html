@@ -437,6 +437,18 @@
       transition: font-size 0.15s ease;
     }
 
+    .katex-output.mixed-mode {
+      text-align: left;
+      white-space: pre-wrap;
+      line-height: 1.8;
+      width: 100%;
+      padding: 0 10px;
+    }
+    .katex-output.mixed-mode .katex-display {
+      margin: 1.2em 0;
+      text-align: center;
+    }
+
     .size-sm .katex-output { font-size: 17px; }
     .size-md .katex-output { font-size: 24px; }
     .size-lg .katex-output { font-size: 34px; }
@@ -538,6 +550,7 @@
     <div class="palette-card">
       <div class="palette-tabs">
         <button class="palette-tab-btn active" data-tab="basic" type="button">Common &amp; Arithmetic</button>
+        <button class="palette-tab-btn" data-tab="delimiters" type="button">Delimiters ($)</button>
         <button class="palette-tab-btn" data-tab="calculus" type="button">Calculus &amp; Analysis</button>
         <button class="palette-tab-btn" data-tab="matrices" type="button">Matrices &amp; Cases</button>
         <button class="palette-tab-btn" data-tab="greek" type="button">Greek Letters</button>
@@ -557,9 +570,13 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
             <span>LaTeX Math Input</span>
           </div>
-          <div style="display: flex; gap: 8px; align-items: center;">
+          <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+            <button id="wrapInlineDollar" class="palette-tab-btn" type="button" style="border: 1px solid var(--border); padding: 4px 8px; font-weight: 700; color: var(--primary);" title="Wrap selection in $ ... $ (Inline math)">$ ... $</button>
+            <button id="wrapBlockDollar" class="palette-tab-btn" type="button" style="border: 1px solid var(--border); padding: 4px 8px; font-weight: 700; color: var(--primary);" title="Wrap selection in $$ ... $$ (Display block)">$$ ... $$</button>
             <select id="presetSelect" class="preset-select" title="Load sample equation">
               <option value="">-- Load Example Formula --</option>
+              <option value="delim_demo">$ Delimiters &amp; Mixed Text Demo</option>
+              <option value="physics_question">Olympiad Question with $</option>
               <option value="quadratic">Quadratic Formula</option>
               <option value="gaussian">Gaussian Integral</option>
               <option value="euler">Euler's Identity</option>
@@ -568,7 +585,6 @@
               <option value="matrix">Matrix Transformation</option>
               <option value="taylor">Taylor Series</option>
               <option value="piecewise">Piecewise Function</option>
-              <option value="physics_question">Olympiad Question Format</option>
             </select>
             <button id="clearInputBtn" class="palette-tab-btn" type="button" style="border: 1px solid var(--border); padding: 4px 8px;">Clear</button>
           </div>
@@ -667,6 +683,18 @@
         { label: '%', insert: '\\% ' },
         { label: '°', insert: '^\\circ ' }
       ],
+      delimiters: [
+        { label: '$ ... $', insert: '$x$', wrap: ['$', '$'], title: 'Inline math delimiter ($...$)' },
+        { label: '$$ ... $$', insert: '$$\n\\int f(x) \\, dx\n$$', wrap: ['$$\n', '\n$$'], title: 'Display math block ($$...$$)' },
+        { label: '\\( ... \\)', insert: '\\(x\\)', wrap: ['\\(', '\\)'], title: 'LaTeX inline delimiter \\(...\\)' },
+        { label: '\\[ ... \\]', insert: '\\[\n\\int f(x) \\, dx\n\\]', wrap: ['\\[\n', '\n\\]'], title: 'LaTeX display delimiter \\[...\\]' },
+        { label: '( ... )', insert: '\\left( x \\right)', wrap: ['\\left( ', ' \\right)'], title: 'Auto-sizing parentheses' },
+        { label: '[ ... ]', insert: '\\left[ x \\right]', wrap: ['\\left[ ', ' \\right]'], title: 'Auto-sizing brackets' },
+        { label: '{ ... }', insert: '\\left\\{ x \\right\\}', wrap: ['\\left\\{ ', ' \\right\\}'], title: 'Auto-sizing braces' },
+        { label: '| ... |', insert: '\\left| x \\right|', wrap: ['\\left| ', ' \\right|'], title: 'Absolute value' },
+        { label: '‖ ... ‖', insert: '\\left\\| x \\right\\|', wrap: ['\\left\\| ', ' \\right\\|'], title: 'Norm' },
+        { label: '⟨ ... ⟩', insert: '\\langle x \\rangle', wrap: ['\\langle ', ' \\rangle'], title: 'Angle brackets / Bra-Ket' }
+      ],
       calculus: [
         { label: '∫', insert: '\\int ' },
         { label: '∫ₐᵇ', insert: '\\int_{a}^{b} f(x) \\, dx' },
@@ -722,6 +750,16 @@
 
     // Preset Examples
     const PRESETS = {
+      delim_demo: `Determine the roots of the quadratic function $f(x) = ax^2 + bx + c$:
+
+$$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$
+
+When the discriminant satisfies $\\Delta = b^2 - 4ac > 0$, the parabola intersects the $x$-axis at two distinct real points.`,
+      physics_question: `Calculate the electric potential $V$ at distance $r$ due to a spherical charge distribution:
+
+$$V(r) = \\frac{1}{4\\pi\\varepsilon_0} \\int_0^R \\frac{\\rho(r')}{r - r'} \\, 4\\pi r'^2 \\, dr'$$
+
+where $\\varepsilon_0$ is the vacuum permittivity and $\\rho(r')$ is the charge density function.`,
       quadratic: `x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}`,
       gaussian: `\\int_{-\\infty}^{\\infty} e^{-x^2} \\, dx = \\sqrt{\\pi}`,
       euler: `e^{i\\pi} + 1 = 0`,
@@ -742,10 +780,7 @@
       piecewise: `f(x) = \\begin{cases}
 \\frac{\\sin x}{x}, & x \\neq 0 \\\\
 1, & x = 0
-\\end{cases}`,
-      physics_question: `\\text{Question 1: Calculate the electric potential } V \\text{ at distance } r:
-\\\\
-V(r) = \\frac{1}{4\\pi\\varepsilon_0} \\int_0^R \\frac{\\rho(r')}{r - r'} \\, 4\\pi r'^2 \\, dr'`
+\\end{cases}`
     };
 
     const input = $('latexInput');
@@ -772,12 +807,34 @@ V(r) = \\frac{1}{4\\pi\\varepsilon_0} \\int_0^R \\frac{\\rho(r')}{r - r'} \\, 4\
       renderMath();
     }
 
+    // Wrap selected text or insert with placeholder
+    function wrapSelection(prefix, suffix, placeholder = 'x') {
+      const start = input.selectionStart;
+      const end = input.selectionEnd;
+      const val = input.value;
+      const selected = val.substring(start, end);
+
+      if (selected.length > 0) {
+        const replacement = prefix + selected + suffix;
+        input.value = val.substring(0, start) + replacement + val.substring(end);
+        input.selectionStart = start + prefix.length;
+        input.selectionEnd = start + prefix.length + selected.length;
+      } else {
+        const replacement = prefix + placeholder + suffix;
+        input.value = val.substring(0, start) + replacement + val.substring(end);
+        input.selectionStart = start + prefix.length;
+        input.selectionEnd = start + prefix.length + placeholder.length;
+      }
+      input.focus();
+      renderMath();
+    }
+
     // Render palette tabs
     function renderPalette(tabKey) {
       const list = PALETTES[tabKey] || [];
       const grid = $('paletteGrid');
       grid.innerHTML = list.map((item, idx) => `
-        <button class="sym-btn" data-idx="${idx}" type="button" title="${item.insert}">
+        <button class="sym-btn" data-idx="${idx}" type="button" title="${item.title || item.insert}">
           <code>${item.label}</code>
         </button>
       `).join('');
@@ -785,9 +842,83 @@ V(r) = \\frac{1}{4\\pi\\varepsilon_0} \\int_0^R \\frac{\\rho(r')}{r - r'} \\, 4\
       grid.querySelectorAll('.sym-btn').forEach(btn => {
         btn.onclick = () => {
           const item = list[Number(btn.dataset.idx)];
-          if (item) insertAtCursor(item.insert);
+          if (!item) return;
+          if (item.wrap && input.selectionStart !== input.selectionEnd) {
+            wrapSelection(item.wrap[0], item.wrap[1]);
+          } else {
+            insertAtCursor(item.insert);
+          }
         };
       });
+    }
+
+    // Check for unescaped $ in a string
+    function hasUnescapedDollar(s) {
+      for (let i = 0; i < s.length; i++) {
+        if (s[i] === '$') {
+          let slashes = 0;
+          let j = i - 1;
+          while (j >= 0 && s[j] === '\\') {
+            slashes++;
+            j--;
+          }
+          if (slashes % 2 === 0) return true;
+        }
+      }
+      return false;
+    }
+
+    // Check if string contains any LaTeX math delimiters
+    function hasDelimiters(s) {
+      return hasUnescapedDollar(s) || s.includes('\\[') || s.includes('\\(');
+    }
+
+    // Detect if input is a single formula wrapped in delimiters
+    function getSingleWrapped(s) {
+      s = s.trim();
+      // $$ ... $$
+      if (s.startsWith('$$') && s.endsWith('$$') && s.length >= 4) {
+        const inner = s.slice(2, -2).trim();
+        if (!inner.includes('$$')) {
+          return { math: inner, display: true };
+        }
+      }
+      // \[ ... \]
+      if (s.startsWith('\\[') && s.endsWith('\\]') && s.length >= 4) {
+        const inner = s.slice(2, -2).trim();
+        if (!inner.includes('\\[') && !inner.includes('\\]')) {
+          return { math: inner, display: true };
+        }
+      }
+      // \( ... \)
+      if (s.startsWith('\\(') && s.endsWith('\\)') && s.length >= 4) {
+        const inner = s.slice(2, -2).trim();
+        if (!inner.includes('\\(') && !inner.includes('\\)')) {
+          return { math: inner, display: false };
+        }
+      }
+      // $ ... $ (single dollar)
+      if (s.startsWith('$') && s.endsWith('$') && s.length >= 2 && !s.startsWith('$$')) {
+        const inner = s.slice(1, -1).trim();
+        if (!hasUnescapedDollar(inner)) {
+          return { math: inner, display: displayMode };
+        }
+      }
+      return null;
+    }
+
+    // Show friendly syntax error notice
+    function showSyntaxError(err) {
+      output.classList.remove('mixed-mode');
+      output.innerHTML = `
+        <div class="syntax-error">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div>
+            <strong>KaTeX Syntax Error:</strong>
+            <div style="margin-top: 4px; font-family: monospace; font-size: 12px; white-space: pre-wrap;">${err.message.replace(/^KaTeX parse error: /, '')}</div>
+          </div>
+        </div>
+      `;
     }
 
     // Render KaTeX Math
@@ -797,6 +928,7 @@ V(r) = \\frac{1}{4\\pi\\varepsilon_0} \\int_0^R \\frac{\\rho(r')}{r - r'} \\, 4\
       $('lineCount').textContent = input.value.split('\n').length;
 
       if (!raw) {
+        output.classList.remove('mixed-mode');
         output.innerHTML = '<span style="color: var(--text-muted); font-size: 15px; font-style: italic;">Enter LaTeX math to preview...</span>';
         return;
       }
@@ -807,6 +939,55 @@ V(r) = \\frac{1}{4\\pi\\varepsilon_0} \\int_0^R \\frac{\\rho(r')}{r - r'} \\, 4\
       }
 
       const t0 = performance.now();
+
+      // 1. Single formula wrapped in delimiters
+      const single = getSingleWrapped(raw);
+      if (single) {
+        output.classList.remove('mixed-mode');
+        try {
+          katex.render(single.math, output, {
+            displayMode: single.display,
+            throwOnError: true,
+            output: 'htmlAndMathml',
+            trust: true
+          });
+          const elapsed = (performance.now() - t0).toFixed(1);
+          $('renderTimeMeta').textContent = `${elapsed}ms`;
+        } catch (err) {
+          showSyntaxError(err);
+        }
+        return;
+      }
+
+      // 2. Mixed text or multiple formulas containing delimiters
+      if (hasDelimiters(raw)) {
+        output.classList.add('mixed-mode');
+        try {
+          output.textContent = input.value;
+          if (typeof renderMathInElement !== 'undefined') {
+            renderMathInElement(output, {
+              delimiters: [
+                { left: '$$', right: '$$', display: true },
+                { left: '\\[', right: '\\]', display: true },
+                { left: '$', right: '$', display: false },
+                { left: '\\(', right: '\\)', display: false }
+              ],
+              throwOnError: false,
+              output: 'htmlAndMathml',
+              trust: true,
+              errorColor: '#ef4444'
+            });
+          }
+          const elapsed = (performance.now() - t0).toFixed(1);
+          $('renderTimeMeta').textContent = `${elapsed}ms`;
+        } catch (err) {
+          showSyntaxError(err);
+        }
+        return;
+      }
+
+      // 3. Raw LaTeX formula without delimiters
+      output.classList.remove('mixed-mode');
       try {
         katex.render(raw, output, {
           displayMode: displayMode,
@@ -817,15 +998,7 @@ V(r) = \\frac{1}{4\\pi\\varepsilon_0} \\int_0^R \\frac{\\rho(r')}{r - r'} \\, 4\
         const elapsed = (performance.now() - t0).toFixed(1);
         $('renderTimeMeta').textContent = `${elapsed}ms`;
       } catch (err) {
-        output.innerHTML = `
-          <div class="syntax-error">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <div>
-              <strong>KaTeX Syntax Error:</strong>
-              <div style="margin-top: 4px; font-family: monospace; font-size: 12px; white-space: pre-wrap;">${err.message.replace(/^KaTeX parse error: /, '')}</div>
-            </div>
-          </div>
-        `;
+        showSyntaxError(err);
       }
     }
 
@@ -859,6 +1032,10 @@ V(r) = \\frac{1}{4\\pi\\varepsilon_0} \\int_0^R \\frac{\\rho(r')}{r - r'} \\, 4\
       input.focus();
       renderMath();
     });
+
+    // Delimiter quick-wrap buttons
+    $('wrapInlineDollar').onclick = () => wrapSelection('$', '$', 'x');
+    $('wrapBlockDollar').onclick = () => wrapSelection('$$\n', '\n$$', '\\int f(x) \\, dx');
 
     // Display / Inline mode toggle
     $('modeDisplay').onclick = () => {
@@ -899,10 +1076,14 @@ V(r) = \\frac{1}{4\\pi\\varepsilon_0} \\int_0^R \\frac{\\rho(r')}{r - r'} \\, 4\
     };
 
     $('copyMathMlBtn').onclick = () => {
-      const mathml = output.querySelector('math');
-      if (mathml) {
-        navigator.clipboard.writeText(mathml.outerHTML);
+      const mathmls = output.querySelectorAll('math');
+      if (mathmls.length === 1) {
+        navigator.clipboard.writeText(mathmls[0].outerHTML);
         showToast('MathML copied! Paste into Word / Docs.');
+      } else if (mathmls.length > 1) {
+        const combined = Array.from(mathmls).map(m => m.outerHTML).join('\n\n');
+        navigator.clipboard.writeText(combined);
+        showToast(`Copied ${mathmls.length} MathML equations to clipboard!`);
       } else {
         showToast('MathML markup not available for current equation.');
       }
@@ -939,7 +1120,12 @@ V(r) = \\frac{1}{4\\pi\\varepsilon_0} \\int_0^R \\frac{\\rho(r')}{r - r'} \\, 4\
       showToast('Generating PDF document…');
       try {
         const form = new FormData();
-        const content = `# KaTeX Math Formula Document\n\n$$\n${formula}\n$$\n`;
+        let content = `# KaTeX Math Formula Document\n\n`;
+        if (hasDelimiters(formula)) {
+          content += formula + '\n';
+        } else {
+          content += `$$\n${formula}\n$$\n`;
+        }
         form.append('markdown_text', content);
         form.append('preset', 'exam');
         form.append('paper_size', 'A4');
