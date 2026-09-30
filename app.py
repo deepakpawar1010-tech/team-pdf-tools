@@ -415,11 +415,18 @@ def merge_pdf():
 
 @app.post("/api/compress")
 def compress_pdf():
-    input_path = None
+    input_paths = []
     output_path = None
+    temp_compressed_files = []
     try:
-        upload = request.files.get("file")
-        valid_pdf(upload)
+        # Support both multiple files ('files') and single file ('file')
+        uploads = request.files.getlist("files") or ([request.files.get("file")] if request.files.get("file") else [])
+        if not uploads or not any(getattr(u, "filename", None) for u in uploads):
+            raise ValueError("Please upload at least one PDF file to compress.")
+
+        for upload in uploads:
+            valid_pdf(upload)
+
         preset = request.form.get("quality", "balanced")
         settings = {
             "small": (96, 50),
@@ -429,30 +436,107 @@ def compress_pdf():
         }
         dpi_target, quality = settings.get(preset, settings["balanced"])
 
-        # Stream upload to disk to avoid blowing up memory on large files
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
-            upload.save(in_tmp.name)
-            input_path = in_tmp.name
+        # Case 1: Single file upload
+        if len(uploads) == 1:
+            upload = uploads[0]
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
+                input_path = in_tmp.name
+            input_paths.append(input_path)
+            upload.save(input_path)
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as out_tmp:
-            output_path = out_tmp.name
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as out_tmp:
+                output_path = out_tmp.name
 
-        doc = fitz.open(input_path)
-        try:
-            doc.rewrite_images(dpi_target=dpi_target, quality=quality)
-        except Exception:
-            pass
+            doc = fitz.open(input_path)
+            try:
+                doc.rewrite_images(dpi_target=dpi_target, quality=quality)
+            except Exception:
+                pass
 
-        doc.save(output_path, garbage=4, deflate=True, clean=True)
-        doc.close()
-        del doc
+            doc.save(output_path, garbage=4, deflate=True, clean=True)
+            doc.close()
+            del doc
+            gc.collect()
+
+            @after_this_request
+            def cleanup_single(response):
+                for p in input_paths:
+                    try:
+                        if os.path.exists(p):
+                            os.remove(p)
+                    except Exception:
+                        pass
+                try:
+                    if output_path and os.path.exists(output_path):
+                        os.remove(output_path)
+                except Exception:
+                    pass
+                return response
+
+            return send_file(
+                output_path,
+                as_attachment=True,
+                download_name=output_name(upload.filename, "compressed"),
+                mimetype="application/pdf"
+            )
+
+        # Case 2: Batch conversion (Multiple PDF files) -> Output as ZIP archive
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as zip_tmp:
+            output_path = zip_tmp.name
+
+        seen_names = {}
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for upload in uploads:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
+                    in_path = in_tmp.name
+                input_paths.append(in_path)
+                upload.save(in_path)
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as comp_tmp:
+                    comp_path = comp_tmp.name
+                temp_compressed_files.append(comp_path)
+
+                doc = fitz.open(in_path)
+                try:
+                    doc.rewrite_images(dpi_target=dpi_target, quality=quality)
+                except Exception:
+                    pass
+                doc.save(comp_path, garbage=4, deflate=True, clean=True)
+                doc.close()
+                del doc
+
+                base_entry_name = output_name(upload.filename, "compressed")
+                if base_entry_name in seen_names:
+                    seen_names[base_entry_name] += 1
+                    stem = Path(base_entry_name).stem
+                    entry_name = f"{stem}_{seen_names[base_entry_name]}.pdf"
+                else:
+                    seen_names[base_entry_name] = 1
+                    entry_name = base_entry_name
+
+                zf.write(comp_path, arcname=entry_name)
+                try:
+                    os.remove(comp_path)
+                except Exception:
+                    pass
+
         gc.collect()
 
         @after_this_request
-        def cleanup(response):
+        def cleanup_batch(response):
+            for p in input_paths:
+                try:
+                    if os.path.exists(p):
+                        os.remove(p)
+                except Exception:
+                    pass
+            for p in temp_compressed_files:
+                try:
+                    if os.path.exists(p):
+                        os.remove(p)
+                except Exception:
+                    pass
             try:
-                if input_path and os.path.exists(input_path):
-                    os.remove(input_path)
                 if output_path and os.path.exists(output_path):
                     os.remove(output_path)
             except Exception:
@@ -462,13 +546,21 @@ def compress_pdf():
         return send_file(
             output_path,
             as_attachment=True,
-            download_name=output_name(upload.filename, "compressed"),
-            mimetype="application/pdf"
+            download_name="compressed-pdfs-bundle.zip",
+            mimetype="application/zip"
         )
     except Exception as error:
-        if input_path and os.path.exists(input_path):
+        logger.exception("Compress PDF failed: %s", error)
+        for p in input_paths:
             try:
-                os.remove(input_path)
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+        for p in temp_compressed_files:
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
             except Exception:
                 pass
         if output_path and os.path.exists(output_path):

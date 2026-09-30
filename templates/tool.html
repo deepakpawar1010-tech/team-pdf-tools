@@ -924,19 +924,19 @@
         <div class="drop-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 0 1-.88-7.903A5 5 0 1 1 15.9 6L16 6a5 5 0 0 1 1 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
         </div>
-        <strong>{% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter'] %}Drop your PDF files here{% elif tool=='pdf-to-word' %}Drop your PDF file here to convert to Word{% elif tool=='word-to-pdf' %}Drop your Word document (.docx) here to convert to PDF{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Drop your Markdown (.md, .txt) or PDF with LaTeX here{% else %}Drop your PDF file here{% endif %}</strong>
+        <strong>{% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter', 'compress'] %}Drop your PDF files here{% elif tool=='pdf-to-word' %}Drop your PDF file here to convert to Word{% elif tool=='word-to-pdf' %}Drop your Word document (.docx) here to convert to PDF{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Drop your Markdown (.md, .txt) or PDF with LaTeX here{% else %}Drop your PDF file here{% endif %}</strong>
         <span>or click to browse files from your computer</span>
         <div class="browse-btn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14"/></svg>
-          Choose {% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter'] %}PDF Files{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Markdown or PDF File{% else %}File{% endif %}
+          Choose {% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter', 'compress'] %}PDF Files{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Markdown or PDF File{% else %}File{% endif %}
         </div>
-        <input id="files" type="file" accept="{% if tool=='word-to-pdf' %}.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}.pdf,.md,.markdown,.txt,.tex,application/pdf,text/markdown,text/plain{% else %}application/pdf{% endif %}" {% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter'] %}multiple{% endif %}>
+        <input id="files" type="file" accept="{% if tool=='word-to-pdf' %}.docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}.pdf,.md,.markdown,.txt,.tex,application/pdf,text/markdown,text/plain{% else %}application/pdf{% endif %}" {% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter', 'compress'] %}multiple{% endif %}>
         <input id="extraFilesInput" type="file" accept="application/pdf" multiple style="display: none;">
       </label>
 
       <div id="empty" class="empty">
         <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z"/></svg>
-        <h2>{% if tool=='merge' %}Add PDF files to merge{% elif tool=='split' %}Add a PDF to split{% elif tool=='pdf-to-word' %}Add a PDF to convert to Word{% elif tool=='word-to-pdf' %}Add a Word document to convert to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Add a PDF to split into worksheets{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Add a Markdown or PDF file to render to PDF{% else %}Add a PDF to compress{% endif %}</h2>
+        <h2>{% if tool=='merge' %}Add PDF files to merge{% elif tool=='compress' %}Add PDF files to compress{% elif tool=='split' %}Add a PDF to split{% elif tool=='pdf-to-word' %}Add a PDF to convert to Word{% elif tool=='word-to-pdf' %}Add a Word document to convert to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Add a PDF to split into worksheets{% elif tool in ['markdown-to-pdf', 'md-to-pdf'] %}Add a Markdown or PDF file to render to PDF{% else %}Add a PDF to compress{% endif %}</h2>
         <p>Private &amp; secure — files are processed in memory and never stored.</p>
       </div>
 
@@ -970,25 +970,25 @@
       </div>
 
       <div id="compressArea" class="hidden">
-        <div style="margin-bottom: 24px; display: flex; align-items: flex-start; justify-content: space-between;">
+        <div style="margin-bottom: 20px; display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
           <div>
-            <span style="font-size: 11px; font-weight: 800; color: var(--primary); text-transform: uppercase; letter-spacing: 1px;">Compress PDF</span>
-            <h2 style="font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px;">Reduce your PDF file size</h2>
+            <span style="font-size: 11px; font-weight: 800; color: #059669; text-transform: uppercase; letter-spacing: 1px;">Compress PDF</span>
+            <h2 id="compressTitle" style="font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin-top: 4px;">Reduce your PDF file size</h2>
+            <div id="compressSubtitle" style="font-size: 13.5px; color: var(--text-muted); margin-top: 4px;"></div>
           </div>
-          <button id="clearCompressFile" class="small-btn" type="button" style="color: var(--primary);">Clear file</button>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <button id="clearCompressFile" class="small-btn" type="button" style="color: var(--text-muted); background: white; border: 1px solid var(--border); padding: 8px 14px; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;">Clear All</button>
+            <button id="addMoreCompressBtn" class="add-more-header-btn" type="button" title="Add extra PDF files" style="display: inline-flex; align-items: center; gap: 6px; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; padding: 8px 14px; border-radius: var(--radius-sm); font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.15s ease;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+              <span>Add Extra PDFs</span>
+            </button>
+          </div>
         </div>
 
-        <div id="compressFileCard" style="background: white; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px 22px; display: flex; align-items: center; gap: 16px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);">
-          <div style="width: 44px; height: 44px; background: #fff1f2; color: var(--primary); border-radius: 10px; display: grid; place-items: center; font-weight: 900; font-size: 14px; flex-shrink: 0;">PDF</div>
-          <div style="flex: 1; min-width: 0;">
-            <div id="compressFileName" style="font-weight: 800; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);"></div>
-            <div id="compressFileMeta" style="font-size: 13px; color: var(--text-muted); margin-top: 4px;"></div>
-          </div>
-          <button id="removeCompressFile" class="icon-btn" title="Remove file" type="button" style="border: 0; background: none; font-size: 22px; color: var(--text-muted); cursor: pointer; display: grid; place-items: center;">&times;</button>
-        </div>
+        <div id="compressFilesContainer" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;"></div>
 
         <p class="hint" style="line-height: 1.6; margin-bottom: 20px;">
-          Choose a balance between file size and page clarity. This creates an image-based PDF, which is especially effective for scanned documents.
+          Choose a balance between file size and page clarity. For multiple files, all PDFs are compressed in batch and packaged into a ZIP archive.
         </p>
       </div>
 
@@ -1195,6 +1195,14 @@
           <option value="best">High Quality (Minimal compression)</option>
           <option value="ultra">Ultra Clarity (Near-original)</option>
         </select>
+
+        <div id="compressBatchInfo" class="hidden" style="margin-top: 16px; padding: 14px 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-md);">
+          <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 13px; color: #059669; margin-bottom: 4px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span>Batch Compression Active</span>
+          </div>
+          <div style="font-size: 12.5px; color: #166534; line-height: 1.4;">Multiple files will be compressed together in batch and downloaded in an organized ZIP bundle.</div>
+        </div>
         {% elif tool=='pdf-to-word' %}
         <label class="field-label">Conversion Output</label>
         <div style="background: white; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; gap: 10px; margin-bottom: 18px;">
@@ -1403,7 +1411,7 @@
       if (v) {
         $('submit').innerHTML = '<span>Processing…</span>';
       } else {
-        const label = mode === 'pdf-to-word' ? 'Convert to Word (.docx)' : mode === 'word-to-pdf' ? 'Convert to PDF (.pdf)' : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Split Worksheets (.zip)' : (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') ? 'Render to PDF (.pdf)' : `${mode[0].toUpperCase() + mode.slice(1)} PDF`;
+        const label = mode === 'pdf-to-word' ? 'Convert to Word (.docx)' : mode === 'word-to-pdf' ? 'Convert to PDF (.pdf)' : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Split Worksheets (.zip)' : (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') ? 'Render to PDF (.pdf)' : (mode === 'compress' && state.files.length > 1) ? `Batch Compress (${state.files.length} PDFs)` : `${mode[0].toUpperCase() + mode.slice(1)} PDF`;
         $('submit').innerHTML = `<span>${label}</span> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>`;
       }
     }
@@ -1564,28 +1572,13 @@
         pageObserver = null;
       }
 
-      // In Compress Mode: Instant 0.05s load without rendering thumbnails
+      // In Compress Mode: Instant load without rendering heavy page thumbnails
       if (mode === 'compress' && state.files.length > 0) {
-        try {
-          const file = state.files[0];
-          show('Loading document…');
-          const buffer = await file.arrayBuffer();
-          state.fileBytes = buffer;
-          if (window.pdfjsLib) {
-            const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
-            state.pageCount = doc.numPages;
-          } else if (window.PDFLib) {
-            const pdf = await PDFLib.PDFDocument.load(buffer, { ignoreEncryption: false });
-            state.pageCount = pdf.getPageCount();
-          }
-          renderCompressArea();
-          show('');
-          updateAreas();
-          setBusy(false);
-          return;
-        } catch (e) {
-          console.warn('Compress fast load fallback:', e);
-        }
+        renderCompressArea();
+        show('');
+        updateAreas();
+        setBusy(false);
+        return;
       }
 
       // In PDF to Word Mode: Instant 0.05s load
@@ -1803,26 +1796,94 @@
     }
 
     function renderCompressArea() {
-      if (!state.files.length) return;
-      const file = state.files[0];
-      if ($('compressFileName')) $('compressFileName').textContent = file.name;
-      if ($('compressFileMeta')) $('compressFileMeta').textContent = `${state.pageCount || '?'} pages • ${bytes(file.size)}`;
-
-      const cleanup = () => {
-        state.files = [];
-        state.fileBytes = null;
-        state.previews = [];
-        state.previewCache.clear();
-        state.renderingPages.clear();
-        renderQueue.length = 0;
-        if (pageObserver) { pageObserver.disconnect(); pageObserver = null; }
+      if (!state.files.length) {
         updateAreas();
-      };
+        return;
+      }
 
-      const removeBtn = $('removeCompressFile');
-      if (removeBtn) removeBtn.onclick = cleanup;
+      const count = state.files.length;
+      const totalBytes = state.files.reduce((acc, f) => acc + (f.size || 0), 0);
+
+      const titleEl = $('compressTitle');
+      if (titleEl) {
+        titleEl.textContent = count > 1 ? 'Batch Compress PDFs' : 'Reduce your PDF file size';
+      }
+
+      const subEl = $('compressSubtitle');
+      if (subEl) {
+        subEl.textContent = `${count} file${count > 1 ? 's' : ''} • ${bytes(totalBytes)} total`;
+      }
+
+      const container = $('compressFilesContainer');
+      if (container) {
+        let html = state.files.map((file, idx) => `
+          <div class="compress-file-item" data-idx="${idx}" style="background: white; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 18px; display: flex; align-items: center; gap: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); transition: all 0.15s ease;">
+            <div style="width: 40px; height: 40px; background: #ecfdf5; color: #059669; border-radius: 9px; display: grid; place-items: center; font-weight: 900; font-size: 13px; flex-shrink: 0;">PDF</div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-weight: 800; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
+              <div style="font-size: 12.5px; color: var(--text-muted); margin-top: 3px;">Ready to compress • ${bytes(file.size)}</div>
+            </div>
+            <button type="button" class="icon-btn compress-remove-btn" data-idx="${idx}" title="Remove file" style="border: 0; background: none; font-size: 20px; color: var(--text-muted); cursor: pointer; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px;">&times;</button>
+          </div>
+        `).join('');
+
+        html += `
+          <div id="compressAddCard" style="border: 2px dashed #a7f3d0; background: #f0fdf4; border-radius: var(--radius-md); padding: 13px 18px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #059669; font-weight: 700; font-size: 13.5px; cursor: pointer; transition: all 0.15s ease;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            <span>+ Add another PDF</span>
+          </div>
+        `;
+
+        container.innerHTML = html;
+
+        container.querySelectorAll('.compress-remove-btn').forEach(btn => {
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            const idx = Number(btn.dataset.idx);
+            state.files.splice(idx, 1);
+            if (!state.files.length) {
+              state.fileBytes = null;
+              updateAreas();
+            } else {
+              renderCompressArea();
+            }
+          };
+        });
+
+        const addCard = $('compressAddCard');
+        if (addCard) {
+          addCard.onclick = () => {
+            if ($('extraFilesInput')) $('extraFilesInput').click();
+            else if ($('files')) $('files').click();
+          };
+        }
+      }
+
+      const addMoreBtn = $('addMoreCompressBtn');
+      if (addMoreBtn && !addMoreBtn._hasListener) {
+        addMoreBtn._hasListener = true;
+        addMoreBtn.onclick = () => {
+          if ($('extraFilesInput')) $('extraFilesInput').click();
+          else if ($('files')) $('files').click();
+        };
+      }
+
       const clearBtn = $('clearCompressFile');
-      if (clearBtn) clearBtn.onclick = cleanup;
+      if (clearBtn && !clearBtn._hasListener) {
+        clearBtn._hasListener = true;
+        clearBtn.onclick = () => {
+          state.files = [];
+          state.fileBytes = null;
+          updateAreas();
+        };
+      }
+
+      const batchInfo = $('compressBatchInfo');
+      if (batchInfo) {
+        batchInfo.classList.toggle('hidden', count <= 1);
+      }
+
+      setBusy(false);
     }
 
     function renderWordArea() {
@@ -2535,7 +2596,7 @@ Difficulty Level: Easy`;
 
     filesInput.addEventListener('change', async () => {
       const selected = [...filesInput.files];
-      if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
+      if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter' || mode === 'compress') {
         const existingKeys = new Set(state.files.map(f => f.name + '_' + f.size));
         selected.forEach(f => {
           if (!existingKeys.has(f.name + '_' + f.size)) {
@@ -2559,7 +2620,16 @@ Difficulty Level: Easy`;
         const selected = [...extraFilesInput.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
         extraFilesInput.value = '';
         if (!selected.length) return;
-        selected.forEach(f => state.files.push(f));
+        if (mode === 'compress' || mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
+          const existingKeys = new Set(state.files.map(f => f.name + '_' + f.size));
+          selected.forEach(f => {
+            if (!existingKeys.has(f.name + '_' + f.size)) {
+              state.files.push(f);
+            }
+          });
+        } else {
+          selected.forEach(f => state.files.push(f));
+        }
         updateAreas();
         await loadPreviews();
       });
@@ -2613,7 +2683,7 @@ Difficulty Level: Easy`;
           f.type.includes('wordprocessingml') ||
           f.type.includes('msword')
         );
-      } else if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
+      } else if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter' || mode === 'compress') {
         const dropped = [...ev.dataTransfer.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
         const existingKeys = new Set(state.files.map(f => f.name + '_' + f.size));
         dropped.forEach(f => {
@@ -2857,7 +2927,7 @@ Difficulty Level: Easy`;
         form.append('font_family', $('mdFontFamily') ? $('mdFontFamily').value : 'sans');
         form.append('render_math', $('mdRenderMath') ? ($('mdRenderMath').checked ? 'true' : 'false') : 'true');
         form.append('page_break_avoid', $('mdPageBreakAvoid') ? ($('mdPageBreakAvoid').checked ? 'true' : 'false') : 'true');
-      } else if (mode === 'merge' || mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
+      } else if (mode === 'merge' || mode === 'worksheet-splitter' || mode === 'oly-ete-splitter' || mode === 'compress') {
         state.files.forEach(f => form.append('files', f));
       } else {
         form.append('file', state.files[0]);
@@ -2964,8 +3034,10 @@ Difficulty Level: Easy`;
         }
       }
 
-      // 2. Client-Side Compress: Matches your Netlify project, fast & zero network upload
-      if (mode === 'compress' && window.PDFLib && window.pdfjsLib && state.files[0]) {
+      // 2. Client-Side Compress: For single files under 30MB (batch and large files route to server streaming)
+      const isBatchCompress = mode === 'compress' && state.files.length > 1;
+      const isLargeCompress = state.files[0] && state.files[0].size > 30 * 1024 * 1024;
+      if (mode === 'compress' && !isBatchCompress && !isLargeCompress && window.PDFLib && window.pdfjsLib && state.files[0]) {
         try {
           const file = state.files[0];
           show('Preparing compression in browser…');
@@ -3027,7 +3099,11 @@ Difficulty Level: Easy`;
         const isPdf = state.files[0] && (state.files[0].name.toLowerCase().endsWith('.pdf') || state.files[0].type === 'application/pdf');
         show(isPdf ? 'Extracting LaTeX & rendering to PDF… this takes ~1-3 seconds.' : 'Rendering Markdown & LaTeX math into PDF… this takes ~1-2 seconds.');
       } else if (mode === 'compress') {
-        show('Compressing pages… this may take a moment for large files.');
+        if (state.files.length > 1) {
+          show(`Batch compressing ${state.files.length} PDFs (streaming to disk)…`);
+        } else {
+          show('Compressing pages… this may take a moment for large files.');
+        }
       } else if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
         const preset = state.worksheetPreset || 'olympiad';
         const fileCount = state.files.length;
@@ -3077,6 +3153,10 @@ Difficulty Level: Easy`;
                    ? (state.files.length > 1 
                        ? `split-${state.worksheetPreset || 'worksheets'}-bundle.zip`
                        : (state.files[0].name.replace(/\.pdf$/i, '') + (state.worksheetPreset === 'cbse' ? '-cbse-sheets.zip' : (state.worksheetPreset === 'ssc' ? '-mcqs.zip' : '-worksheets.zip'))))
+                 : mode === 'compress'
+                   ? (state.files.length > 1
+                       ? 'compressed-pdfs-bundle.zip'
+                       : (state.files[0].name.replace(/\.pdf$/i, '') + '-compressed.pdf'))
                  : mode + '.pdf';
         const cd = r.headers.get('Content-Disposition');
         const m = cd && cd.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
@@ -3088,7 +3168,7 @@ Difficulty Level: Easy`;
         a.download = name;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        show(mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' : mode === 'word-to-pdf' ? 'Done! PDF document downloaded.' : (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') ? 'Done! Rendered PDF downloaded.' : mode === 'compress' ? 'Done! Compressed PDF downloaded.' : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Done! All split worksheets downloaded as ZIP.' : 'Done! Your download has started.', false, true);
+        show(mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' : mode === 'word-to-pdf' ? 'Done! PDF document downloaded.' : (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') ? 'Done! Rendered PDF downloaded.' : mode === 'compress' ? (state.files.length > 1 ? 'Done! Batch compressed PDFs downloaded as ZIP bundle.' : 'Done! Compressed PDF downloaded.') : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Done! All split worksheets downloaded as ZIP.' : 'Done! Your download has started.', false, true);
       } catch (e) {
         show(e.message || (mode === 'word-to-pdf' ? 'Could not convert Word document.' : (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') ? 'Could not render Markdown to PDF.' : 'Could not process PDF.'), true);
       } finally {
