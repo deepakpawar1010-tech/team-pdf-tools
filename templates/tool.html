@@ -2985,7 +2985,110 @@ Difficulty Level: Easy`;
 
       setBusy(true);
 
+      // 1. Client-Side Split: Instant processing for files under 30MB
+      const splitFile = state.files[0];
+      const isLargeSplit = splitFile && splitFile.size > 30 * 1024 * 1024;
+      if (mode === 'split' && window.PDFLib && splitFile && $('combine').checked && !isLargeSplit) {
+        try {
+          const file = splitFile;
+          let rangesList = [];
+          if (state.splitView === 'range') {
+            const norm = state.ranges.map(normalizeRange);
+            if (!norm.length) { setBusy(false); return show('Add at least one page range.', true); }
+            rangesList = norm;
+          } else {
+            let ranges;
+            try { ranges = parseRanges($('ranges').value); } catch (e) { setBusy(false); return show(e.message, true); }
+            if (!ranges.size) { setBusy(false); return show('Select at least one page.', true); }
+            const sorted = [...ranges].sort((a,b) => a-b);
+            rangesList = sorted.map(p => ({ from: p, to: p }));
+          }
 
+          show('Extracting pages in browser…');
+          const arrayBuffer = state.fileBytes || await file.arrayBuffer();
+          const srcDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+          const newDoc = await PDFLib.PDFDocument.create();
+
+          for (const r of rangesList) {
+            const pageIndices = [];
+            for (let p = r.from; p <= r.to; p++) {
+              if (p >= 1 && p <= srcDoc.getPageCount()) pageIndices.push(p - 1);
+            }
+            if (pageIndices.length) {
+              const copied = await newDoc.copyPages(srcDoc, pageIndices);
+              copied.forEach(page => newDoc.addPage(page));
+            }
+          }
+
+          const pdfBytes = await newDoc.save();
+          const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+          const url = URL.createObjectURL(blob), a = document.createElement('a');
+          a.href = url;
+          a.download = file.name.replace(/\.pdf$/i, '') + '-selected-pages.pdf';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          show('Done! Your selected pages have been downloaded.', false, true);
+          setBusy(false);
+          return;
+        } catch (splitErr) {
+          console.warn('Client split fallback to server:', splitErr);
+        }
+      }
+
+      // 2. Client-Side Compress: Instant in-browser compression with live page numbers and HD laptop clarity
+      const isBatchCompress = mode === 'compress' && state.files.length > 1;
+      const isLargeCompress = state.files[0] && state.files[0].size > 50 * 1024 * 1024;
+      if (mode === 'compress' && !isBatchCompress && !isLargeCompress && window.PDFLib && window.pdfjsLib && state.files[0]) {
+        try {
+          const file = state.files[0];
+          show('Preparing compression in browser…');
+          const qualityPreset = $('quality').value;
+          
+          // Enhanced presets: high renderScale (1.8-2.5x) ensures razor-sharp laptop clarity (1080p/2K/Retina)
+          const presetConfig = {
+            small:    { scale: 1.2, quality: 0.65 },
+            balanced: { scale: 1.6, quality: 0.78 },
+            best:     { scale: 2.0, quality: 0.84 },
+            ultra:    { scale: 2.5, quality: 0.92 }
+          };
+          const cfg = presetConfig[qualityPreset] || presetConfig.best;
+          const renderScale = cfg.scale;
+          const quality = cfg.quality;
+
+          const buffer = state.fileBytes || await file.arrayBuffer();
+          const srcPdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
+          const outPdf = await PDFLib.PDFDocument.create();
+
+          for (let i = 1; i <= srcPdf.numPages; i++) {
+            show(`Compressing page ${i} of ${srcPdf.numPages}…`);
+            const page = await srcPdf.getPage(i);
+            const original = page.getViewport({ scale: 1 });
+            const rendered = page.getViewport({ scale: renderScale });
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(rendered.width);
+            canvas.height = Math.round(rendered.height);
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport: rendered }).promise;
+            const imgData = canvas.toDataURL('image/jpeg', quality);
+            const embedded = await outPdf.embedJpg(imgData);
+            const newPage = outPdf.addPage([original.width, original.height]);
+            newPage.drawImage(embedded, { x: 0, y: 0, width: original.width, height: original.height });
+          }
+
+          show('Finalizing compressed PDF…');
+          const outBytes = await outPdf.save({ useObjectStreams: true });
+          const blob = new Blob([outBytes], { type: 'application/pdf' });
+          const url = URL.createObjectURL(blob), a = document.createElement('a');
+          a.href = url;
+          a.download = file.name.replace(/\.pdf$/i, '') + '-compressed.pdf';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          show('Done! Your compressed PDF has been downloaded.', false, true);
+          setBusy(false);
+          return;
+        } catch (compErr) {
+          console.warn('Client compress fallback to server:', compErr);
+        }
+      }
 
       if (mode === 'pdf-to-word') {
         const langVal = $('wordLanguage') ? $('wordLanguage').value : 'auto';
