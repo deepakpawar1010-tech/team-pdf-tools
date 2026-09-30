@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pymupdf
 fitz = pymupdf
+from PIL import Image
 from flask import Flask, jsonify, render_template, request, send_file, after_this_request
 from pypdf import PdfReader, PdfWriter
 
@@ -237,10 +238,10 @@ def split_pdf():
         valid_pdf(upload)
         ranges = request.form.get("ranges", "")
 
-        # Stream upload directly to disk (supports 500MB+ files with zero RAM bloating)
+        # Stream upload directly to disk using 1MB chunks (supports 500MB+ files with zero RAM bloating)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
             input_path = in_tmp.name
-        upload.save(input_path)
+            shutil.copyfileobj(upload.stream, in_tmp, length=1024 * 1024)
 
         # Open file directly from disk via OS memory-mapping (virtually 0 MB RAM)
         doc = fitz.open(input_path)
@@ -274,7 +275,9 @@ def split_pdf():
             out_doc = fitz.open()
             for start, end in selected_ranges:
                 out_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
-            out_doc.save(output_path, garbage=3, deflate=True)
+            # Ultra-fast save: garbage=1 cleans xrefs without quadratic duplicate-stream scanning;
+            # deflate=False copies existing compressed streams directly in C in milliseconds!
+            out_doc.save(output_path, garbage=1, deflate=False)
             out_doc.close()
             doc.close()
             del out_doc
@@ -299,26 +302,20 @@ def split_pdf():
                 mimetype="application/pdf",
             )
 
-        # Unmerged: Create individual PDF files bundled into a ZIP archive on disk
+        # Unmerged: Create individual PDF files bundled into a ZIP archive directly in memory
         with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as zip_tmp:
             output_path = zip_tmp.name
 
-        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_STORED) as zf:
             for number, (start, end) in enumerate(selected_ranges, start=1):
                 sub_doc = fitz.open()
                 sub_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as sub_tmp:
-                    sub_path = sub_tmp.name
-                sub_doc.save(sub_path, garbage=3, deflate=True)
+                sub_bytes = sub_doc.tobytes(garbage=1, deflate=False)
                 sub_doc.close()
                 del sub_doc
                 suffix = f"page-{start}" if start == end else f"pages-{start}-{end}"
                 file_entry_name = output_name(upload.filename, f"{number:02d}_{suffix}")
-                zf.write(sub_path, arcname=file_entry_name)
-                try:
-                    os.remove(sub_path)
-                except Exception:
-                    pass
+                zf.writestr(file_entry_name, sub_bytes)
 
         doc.close()
         del doc
@@ -421,6 +418,85 @@ def merge_pdf():
         return jsonify({"error": str(error)}), 400
 
 
+def optimize_pdf_images(doc: fitz.Document, dpi_target: int = 220, quality: int = 85) -> int:
+    """
+    Optimizes embedded raster images inside a PDF:
+    - Downsamples images whose DPI exceeds dpi_target on the page using Lanczos resampling.
+    - Preserves 100% of vector text, fonts, mathematical symbols, equations, and annotations.
+    - Replaces image streams via page.replace_image(xref, stream=...).
+    - Shared images across pages are deduplicated and processed only once.
+    Returns the count of optimized images.
+    """
+    processed_xrefs = set()
+    optimized_count = 0
+
+    for page_idx in range(len(doc)):
+        page = doc[page_idx]
+        image_infos = page.get_image_info(xrefs=True)
+        if not image_infos:
+            continue
+
+        for img_info in image_infos:
+            xref = img_info.get("xref")
+            if not xref or xref in processed_xrefs:
+                continue
+            processed_xrefs.add(xref)
+
+            bbox = img_info.get("bbox")
+            if not bbox:
+                continue
+
+            # Display dimensions in inches (72 points = 1 inch)
+            disp_w_in = max((bbox[2] - bbox[0]) / 72.0, 0.1)
+            disp_h_in = max((bbox[3] - bbox[1]) / 72.0, 0.1)
+
+            orig_w = img_info.get("width", 0)
+            orig_h = img_info.get("height", 0)
+            if orig_w <= 0 or orig_h <= 0:
+                continue
+
+            # Current effective DPI of the image as displayed on this page
+            current_dpi = max(orig_w / disp_w_in, orig_h / disp_h_in)
+
+            try:
+                extracted = doc.extract_image(xref)
+                if not extracted or not extracted.get("image"):
+                    continue
+
+                raw_bytes = extracted["image"]
+                ext = extracted.get("ext", "").lower()
+
+                # If current DPI is already within target range and image is already a compressed JPEG, keep it
+                needs_downsample = current_dpi > (dpi_target * 1.15)
+                if not needs_downsample and ext in ("jpeg", "jpg"):
+                    continue
+
+                pil_img = Image.open(io.BytesIO(raw_bytes))
+
+                if needs_downsample:
+                    target_w = min(max(int(disp_w_in * dpi_target), 50), orig_w)
+                    target_h = min(max(int(disp_h_in * dpi_target), 50), orig_h)
+                    pil_img = pil_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+
+                out_buf = io.BytesIO()
+                has_alpha = pil_img.mode in ("RGBA", "LA") or (pil_img.mode == "P" and "transparency" in pil_img.info)
+                if has_alpha:
+                    pil_img.save(out_buf, format="PNG", optimize=True)
+                else:
+                    if pil_img.mode != "RGB":
+                        pil_img = pil_img.convert("RGB")
+                    pil_img.save(out_buf, format="JPEG", quality=quality, optimize=True)
+
+                new_bytes = out_buf.getvalue()
+                if len(new_bytes) < len(raw_bytes):
+                    page.replace_image(xref, stream=new_bytes)
+                    optimized_count += 1
+            except Exception as ex:
+                logger.debug("Skipping image optimization for xref %s: %s", xref, ex)
+
+    return optimized_count
+
+
 @app.post("/api/compress")
 def compress_pdf():
     input_paths = []
@@ -435,33 +511,30 @@ def compress_pdf():
         for upload in uploads:
             valid_pdf(upload)
 
-        preset = request.form.get("quality", "balanced")
+        preset = request.form.get("quality", "best").lower()
         settings = {
-            "small": (96, 50),
-            "balanced": (144, 68),
-            "best": (200, 80),
-            "ultra": (280, 90),
+            "small": (120, 68),
+            "balanced": (160, 78),
+            "best": (220, 85),
+            "laptop": (220, 85),
+            "ultra": (300, 92),
         }
-        dpi_target, quality = settings.get(preset, settings["balanced"])
+        dpi_target, quality = settings.get(preset, settings["best"])
 
         # Case 1: Single file upload
         if len(uploads) == 1:
             upload = uploads[0]
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
                 input_path = in_tmp.name
+                shutil.copyfileobj(upload.stream, in_tmp, length=1024 * 1024)
             input_paths.append(input_path)
-            upload.save(input_path)
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as out_tmp:
                 output_path = out_tmp.name
 
             doc = fitz.open(input_path)
-            try:
-                doc.rewrite_images(dpi_target=dpi_target, quality=quality)
-            except Exception:
-                pass
-
-            doc.save(output_path, garbage=4, deflate=True, clean=True)
+            optimize_pdf_images(doc, dpi_target=dpi_target, quality=quality)
+            doc.save(output_path, garbage=3, deflate=True)
             doc.close()
             del doc
             gc.collect()
@@ -497,19 +570,16 @@ def compress_pdf():
             for upload in uploads:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
                     in_path = in_tmp.name
+                    shutil.copyfileobj(upload.stream, in_tmp, length=1024 * 1024)
                 input_paths.append(in_path)
-                upload.save(in_path)
 
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as comp_tmp:
                     comp_path = comp_tmp.name
                 temp_compressed_files.append(comp_path)
 
                 doc = fitz.open(in_path)
-                try:
-                    doc.rewrite_images(dpi_target=dpi_target, quality=quality)
-                except Exception:
-                    pass
-                doc.save(comp_path, garbage=4, deflate=True, clean=True)
+                optimize_pdf_images(doc, dpi_target=dpi_target, quality=quality)
+                doc.save(comp_path, garbage=3, deflate=True)
                 doc.close()
                 del doc
 

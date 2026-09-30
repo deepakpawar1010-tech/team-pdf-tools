@@ -1189,12 +1189,12 @@
           Merge extracted pages into one PDF
         </label>
         {% elif tool=='compress' %}
-        <label class="field-label" for="quality">Compression Quality</label>
+        <label class="field-label" for="quality">Compression Quality &amp; Clarity</label>
         <select id="quality" class="quality">
-          <option value="small">Smallest file (Fastest download)</option>
-          <option value="balanced" selected>Balanced (Recommended)</option>
-          <option value="best">High Quality (Minimal compression)</option>
-          <option value="ultra">Ultra Clarity (Near-original)</option>
+          <option value="best" selected>💻 Laptop &amp; Desktop HD — Crisp clarity (Target up to 45 MB)</option>
+          <option value="ultra">🌟 Ultra HD / Retina 4K — Maximum sharpness (Near-original)</option>
+          <option value="balanced">📱 Balanced — Clean clarity for mobile &amp; tablet</option>
+          <option value="small">⚡ Compact — Smallest file size (Fast email download)</option>
         </select>
 
         <div id="compressBatchInfo" class="hidden" style="margin-top: 16px; padding: 14px 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-md);">
@@ -2985,102 +2985,7 @@ Difficulty Level: Easy`;
 
       setBusy(true);
 
-      // 1. Client-Side Split: Instant processing for files under 30MB
-      const splitFile = state.files[0];
-      const isLargeSplit = splitFile && splitFile.size > 30 * 1024 * 1024;
-      if (mode === 'split' && window.PDFLib && splitFile && $('combine').checked && !isLargeSplit) {
-        try {
-          const file = splitFile;
-          let rangesList = [];
-          if (state.splitView === 'range') {
-            const norm = state.ranges.map(normalizeRange);
-            if (!norm.length) { setBusy(false); return show('Add at least one page range.', true); }
-            rangesList = norm;
-          } else {
-            let ranges;
-            try { ranges = parseRanges($('ranges').value); } catch (e) { setBusy(false); return show(e.message, true); }
-            if (!ranges.size) { setBusy(false); return show('Select at least one page.', true); }
-            const sorted = [...ranges].sort((a,b) => a-b);
-            rangesList = sorted.map(p => ({ from: p, to: p }));
-          }
 
-          show('Extracting pages in browser…');
-          const arrayBuffer = state.fileBytes || await file.arrayBuffer();
-          const srcDoc = await PDFLib.PDFDocument.load(arrayBuffer);
-          const newDoc = await PDFLib.PDFDocument.create();
-
-          for (const r of rangesList) {
-            const pageIndices = [];
-            for (let p = r.from; p <= r.to; p++) {
-              if (p >= 1 && p <= srcDoc.getPageCount()) pageIndices.push(p - 1);
-            }
-            if (pageIndices.length) {
-              const copied = await newDoc.copyPages(srcDoc, pageIndices);
-              copied.forEach(page => newDoc.addPage(page));
-            }
-          }
-
-          const pdfBytes = await newDoc.save();
-          const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-          const url = URL.createObjectURL(blob), a = document.createElement('a');
-          a.href = url;
-          a.download = file.name.replace(/\.pdf$/i, '') + '-selected-pages.pdf';
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-          show('Done! Your selected pages have been downloaded.', false, true);
-          setBusy(false);
-          return;
-        } catch (splitErr) {
-          console.warn('Client split fallback to server:', splitErr);
-        }
-      }
-
-      // 2. Client-Side Compress: For single files under 30MB (batch and large files route to server streaming)
-      const isBatchCompress = mode === 'compress' && state.files.length > 1;
-      const isLargeCompress = state.files[0] && state.files[0].size > 30 * 1024 * 1024;
-      if (mode === 'compress' && !isBatchCompress && !isLargeCompress && window.PDFLib && window.pdfjsLib && state.files[0]) {
-        try {
-          const file = state.files[0];
-          show('Preparing compression in browser…');
-          const qualityPreset = $('quality').value;
-          const qualityMap = { small: 0.55, balanced: 0.72, best: 0.88, ultra: 0.96 };
-          const quality = qualityMap[qualityPreset] || parseFloat(qualityPreset) || 0.72;
-          const renderScale = quality < 0.6 ? 0.85 : quality > 0.94 ? 1.55 : quality > 0.8 ? 1.25 : 1;
-
-          const buffer = state.fileBytes || await file.arrayBuffer();
-          const srcPdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
-          const outPdf = await PDFLib.PDFDocument.create();
-
-          for (let i = 1; i <= srcPdf.numPages; i++) {
-            show(`Compressing page ${i} of ${srcPdf.numPages}…`);
-            const page = await srcPdf.getPage(i);
-            const original = page.getViewport({ scale: 1 });
-            const rendered = page.getViewport({ scale: renderScale });
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.round(rendered.width);
-            canvas.height = Math.round(rendered.height);
-            await page.render({ canvasContext: canvas.getContext('2d'), viewport: rendered }).promise;
-            const imgData = canvas.toDataURL('image/jpeg', quality);
-            const embedded = await outPdf.embedJpg(imgData);
-            const newPage = outPdf.addPage([original.width, original.height]);
-            newPage.drawImage(embedded, { x: 0, y: 0, width: original.width, height: original.height });
-          }
-
-          show('Finalizing compressed PDF…');
-          const outBytes = await outPdf.save({ useObjectStreams: true });
-          const blob = new Blob([outBytes], { type: 'application/pdf' });
-          const url = URL.createObjectURL(blob), a = document.createElement('a');
-          a.href = url;
-          a.download = file.name.replace(/\.pdf$/i, '') + '-compressed.pdf';
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-          show('Done! Your compressed PDF has been downloaded.', false, true);
-          setBusy(false);
-          return;
-        } catch (compErr) {
-          console.warn('Client compress fallback to server:', compErr);
-        }
-      }
 
       if (mode === 'pdf-to-word') {
         const langVal = $('wordLanguage') ? $('wordLanguage').value : 'auto';
