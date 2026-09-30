@@ -88,8 +88,16 @@ def healthz():
     return jsonify({"status": "healthy", "service": "team-pdf-tools"}), 200
 
 
+@app.get("/katex-viewer")
+@app.get("/katex")
+def katex_page():
+    return render_template("katex.html")
+
+
 @app.get("/<tool>")
 def tool_page(tool: str):
+    if tool in {"katex-viewer", "katex"}:
+        return render_template("katex.html")
     if tool in {"merge", "split", "compress", "pdf-to-word", "word-to-pdf", "worksheet-splitter", "oly-ete-splitter", "markdown-to-pdf", "md-to-pdf"}:
         return render_template("tool.html", tool=tool)
     if tool in COMING_SOON:
