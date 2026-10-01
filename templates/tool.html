@@ -1132,21 +1132,20 @@
           Merge extracted pages into one PDF
         </label>
         {% elif tool=='compress' %}
-        <label class="field-label" for="quality">Compression Quality</label>
-        <select id="quality" class="quality">
-          <option value="balanced" selected>Balanced — up to 15 MB</option>
-          <option value="high">High Clarity — up to 30 MB</option>
-          <option value="ultra">Ultra Clarity — up to 45 MB</option>
-        </select>
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 7px; line-height: 1.45;">If needed to meet the size limit, pages may be flattened to images and text may no longer be selectable.</div>
-
-        <div id="compressMetaInfo" style="margin-top: 14px; background: white; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; gap: 10px;">
+        <div id="compressMetaInfo" style="margin-bottom: 16px; background: white; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; gap: 10px;">
           <div style="width: 32px; height: 32px; border-radius: 8px; background: #ecfdf5; color: #059669; display: grid; place-items: center; font-weight: 800; font-size: 11px;">PDF</div>
           <div>
             <div id="sideCompressCount" style="font-size: 13.5px; font-weight: 800; color: var(--text);">0 pages</div>
             <div id="sideCompressSize" style="font-size: 11.5px; color: var(--text-muted);">0 MB total • High speed</div>
           </div>
         </div>
+
+        <label class="field-label" for="quality">Compression Quality</label>
+        <select id="quality" class="quality">
+          <option value="balanced" selected>Balanced — up to 15 MB</option>
+          <option value="high">High Clarity — up to 30 MB</option>
+          <option value="ultra">Ultra Clarity — up to 45 MB</option>
+        </select>
 
         <div id="compressBatchInfo" class="hidden" style="margin-top: 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-sm); padding: 12px 14px;">
           <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 13px; color: #059669; margin-bottom: 4px;">
@@ -1315,18 +1314,6 @@
       const msg = $('message');
       msg.textContent = text;
       msg.className = 'message' + (error ? ' error' : '') + (success ? ' success' : '');
-    }
-
-    async function readJsonResponse(response, context) {
-      const body = await response.text();
-      if (!body.trim()) {
-        throw new Error(`${context}: the server returned an empty response (${response.status}).`);
-      }
-      try {
-        return JSON.parse(body);
-      } catch {
-        throw new Error(`${context}: the server returned an unreadable response (${response.status}).`);
-      }
     }
 
     function bytes(n) {
@@ -2866,7 +2853,7 @@
       }
 
       try {
-        let r = await fetch('/api/' + mode, { method: 'POST', body: form });
+        const r = await fetch('/api/' + mode, { method: 'POST', body: form });
         if (!r.ok) {
           let err = `Server returned error (${r.status})`;
           if (r.status === 413) {
@@ -2888,49 +2875,6 @@
             }
           }
           throw new Error(err);
-        }
-
-        if (mode === 'compress') {
-          const job = await readJsonResponse(r, 'Could not start compression');
-          if (!job.job_id) throw new Error(job.error || 'Could not start compression.');
-          if (compressTicker) {
-            clearInterval(compressTicker);
-            compressTicker = null;
-          }
-          let jobState = 'queued';
-          let statusRetries = 0;
-          while (jobState === 'queued' || jobState === 'processing') {
-            show(jobState === 'queued' ? 'Upload received. Starting compression…' : 'Compressing on the server… Large PDFs can take a few minutes.');
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            try {
-              const statusResponse = await fetch(`/api/compress/status/${job.job_id}`, { cache: 'no-store' });
-              if ([502, 503, 504].includes(statusResponse.status) && statusRetries < 6) {
-                statusRetries++;
-                show(`Server is waking up. Checking compression again (${statusRetries}/6)…`);
-                await new Promise(resolve => setTimeout(resolve, Math.min(8000, statusRetries * 1500)));
-                continue;
-              }
-              if (!statusResponse.ok) {
-                const errorData = await readJsonResponse(statusResponse, 'Could not check compression status');
-                throw new Error(errorData.error || `Could not check compression status (${statusResponse.status}).`);
-              }
-              const statusData = await readJsonResponse(statusResponse, 'Could not check compression status');
-              statusRetries = 0;
-              jobState = statusData.status;
-              if (jobState === 'failed') throw new Error(statusData.error || 'Compression failed.');
-            } catch (statusError) {
-              if (statusRetries < 6 && /empty response|unreadable response|Failed to fetch|NetworkError/i.test(statusError.message)) {
-                statusRetries++;
-                show(`Connection interrupted. Checking compression again (${statusRetries}/6)…`);
-                await new Promise(resolve => setTimeout(resolve, Math.min(8000, statusRetries * 1500)));
-                continue;
-              }
-              throw statusError;
-            }
-          }
-          window.location.assign(`/api/compress/download/${job.job_id}`);
-          show('Compression complete. Your download is starting.', false, true);
-          return;
         }
 
         if (compressTicker) {
