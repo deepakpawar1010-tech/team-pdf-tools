@@ -1197,7 +1197,13 @@
           <option value="ultra">Ultra Clarity (Near-original)</option>
         </select>
 
-        <div id="compressBatchInfo" class="hidden" style="margin-top: 16px; padding: 14px 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-md);">
+        <div id="compressMetaInfo" style="margin-top: 14px; background: white; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; gap: 10px;">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: #ecfdf5; color: #059669; display: grid; place-items: center; font-weight: 800; font-size: 11px;">PDF</div>
+          <div>
+            <div id="sideCompressCount" style="font-size: 13.5px; font-weight: 800; color: var(--text);">0 pages</div>
+            <div id="sideCompressSize" style="font-size: 11.5px; color: var(--text-muted);">0 MB total • High speed</div>
+          </div>
+        </div>
           <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 13px; color: #059669; margin-bottom: 4px;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             <span>Batch Compression Active</span>
@@ -1573,8 +1579,46 @@
         pageObserver = null;
       }
 
-      // In Compress Mode: Instant load without rendering heavy page thumbnails
+      // In Compress Mode: Instantly check page numbers without rendering any heavy pages
       if (mode === 'compress' && state.files.length > 0) {
+        renderCompressArea();
+        updateAreas();
+
+        for (const file of state.files) {
+          if (!file.pageCount) {
+            try {
+              if (file.size > 50 * 1024 * 1024) {
+                // For very large files (> 50MB), quickly query /api/info so browser doesn't allocate huge arrayBuffer
+                const fd = new FormData();
+                fd.append('file', file);
+                const res = await fetch('/api/info', { method: 'POST', body: fd });
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data.pages) file.pageCount = data.pages;
+                }
+              } else {
+                const buffer = await file.arrayBuffer();
+                if (window.pdfjsLib) {
+                  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+                  file.pageCount = doc.numPages;
+                } else if (window.PDFLib) {
+                  const pdf = await PDFLib.PDFDocument.load(buffer, { ignoreEncryption: true });
+                  file.pageCount = pdf.getPageCount();
+                }
+              }
+            } catch (err) {
+              try {
+                const fd = new FormData();
+                fd.append('file', file);
+                const res = await fetch('/api/info', { method: 'POST', body: fd });
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data.pages) file.pageCount = data.pages;
+                }
+              } catch {}
+            }
+          }
+        }
         renderCompressArea();
         show('');
         updateAreas();
@@ -1804,6 +1848,7 @@
 
       const count = state.files.length;
       const totalBytes = state.files.reduce((acc, f) => acc + (f.size || 0), 0);
+      const totalPages = state.files.reduce((acc, f) => acc + (f.pageCount || 0), 0);
 
       const titleEl = $('compressTitle');
       if (titleEl) {
@@ -1812,7 +1857,15 @@
 
       const subEl = $('compressSubtitle');
       if (subEl) {
-        subEl.textContent = `${count} file${count > 1 ? 's' : ''} • ${bytes(totalBytes)} total`;
+        const pageText = totalPages > 0 ? ` • ${totalPages} page${totalPages > 1 ? 's' : ''}` : '';
+        subEl.textContent = `${count} file${count > 1 ? 's' : ''}${pageText} • ${bytes(totalBytes)} total`;
+      }
+
+      if ($('sideCompressCount')) {
+        $('sideCompressCount').textContent = totalPages > 0 ? `${totalPages} page${totalPages > 1 ? 's' : ''}` : `${count} file${count > 1 ? 's' : ''}`;
+      }
+      if ($('sideCompressSize')) {
+        $('sideCompressSize').textContent = `${bytes(totalBytes)} total • Ready`;
       }
 
       const container = $('compressFilesContainer');
@@ -1822,7 +1875,7 @@
             <div style="width: 40px; height: 40px; background: #ecfdf5; color: #059669; border-radius: 9px; display: grid; place-items: center; font-weight: 900; font-size: 13px; flex-shrink: 0;">PDF</div>
             <div style="flex: 1; min-width: 0;">
               <div style="font-weight: 800; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
-              <div style="font-size: 12.5px; color: var(--text-muted); margin-top: 3px;">Ready to compress • ${bytes(file.size)}</div>
+              <div style="font-size: 12.5px; color: var(--text-muted); margin-top: 3px;">${file.pageCount ? `<span style="display: inline-flex; align-items: center; background: #ecfdf5; color: #059669; font-weight: 800; padding: 2px 7px; border-radius: 5px; margin-right: 6px; font-size: 11.5px;">${file.pageCount} page${file.pageCount > 1 ? 's' : ''}</span>` : ''}${bytes(file.size)} • Ready to compress</div>
             </div>
             <button type="button" class="icon-btn compress-remove-btn" data-idx="${idx}" title="Remove file" style="border: 0; background: none; font-size: 20px; color: var(--text-muted); cursor: pointer; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px;">&times;</button>
           </div>
@@ -3035,60 +3088,27 @@ Difficulty Level: Easy`;
         }
       }
 
-      // 2. Client-Side Compress: For short documents (<= 8 pages) and under 15MB
-      const isBatchCompress = mode === 'compress' && state.files.length > 1;
-      const isLargeCompress = state.files[0] && state.files[0].size > 15 * 1024 * 1024;
-      if (mode === 'compress' && !isBatchCompress && !isLargeCompress && window.PDFLib && window.pdfjsLib && state.files[0]) {
-        try {
-          const file = state.files[0];
-          const buffer = state.fileBytes || await file.arrayBuffer();
-          const srcPdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
+      let compressTicker = null;
+      if (mode === 'compress') {
+        const totalPages = state.files.reduce((acc, f) => acc + (f.pageCount || 0), 0) || 1;
+        let converted = 0;
+        const isBatch = state.files.length > 1;
+        show(isBatch 
+          ? `Compressing: 0 of ${totalPages} pages converted across ${state.files.length} PDFs (0%)…` 
+          : `Compressing: 0 of ${totalPages} pages converted (0%)…`);
 
-          // For documents > 8 pages (like 39 pages), route to high-speed PyMuPDF streaming (2s vs 90s in JS)
-          if (srcPdf.numPages > 8) {
-            console.log(`Document has ${srcPdf.numPages} pages. Routing to ultra-fast PyMuPDF C engine.`);
-            // Proceed to server fetch
-          } else {
-            show('Preparing compression in browser…');
-            const qualityPreset = $('quality').value;
-            const qualityMap = { small: 0.55, balanced: 0.72, best: 0.88, ultra: 0.96 };
-            const quality = qualityMap[qualityPreset] || parseFloat(qualityPreset) || 0.72;
-            const renderScale = quality < 0.6 ? 0.85 : quality > 0.94 ? 1.55 : quality > 0.8 ? 1.25 : 1;
-            const outPdf = await PDFLib.PDFDocument.create();
-
-            for (let i = 1; i <= srcPdf.numPages; i++) {
-              show(`Compressing page ${i} of ${srcPdf.numPages}…`);
-              const page = await srcPdf.getPage(i);
-              const original = page.getViewport({ scale: 1 });
-              const rendered = page.getViewport({ scale: renderScale });
-              const canvas = document.createElement('canvas');
-              canvas.width = Math.round(rendered.width);
-              canvas.height = Math.round(rendered.height);
-              await page.render({ canvasContext: canvas.getContext('2d'), viewport: rendered }).promise;
-              const imgData = canvas.toDataURL('image/jpeg', quality);
-              const embedded = await outPdf.embedJpg(imgData);
-              const newPage = outPdf.addPage([original.width, original.height]);
-              newPage.drawImage(embedded, { x: 0, y: 0, width: original.width, height: original.height });
-            }
-
-            show('Finalizing compressed PDF…');
-            const outBytes = await outPdf.save({ useObjectStreams: true });
-            const blob = new Blob([outBytes], { type: 'application/pdf' });
-            const url = URL.createObjectURL(blob), a = document.createElement('a');
-            a.href = url;
-            a.download = file.name.replace(/\.pdf$/i, '') + '-compressed.pdf';
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-            show('Done! Your compressed PDF has been downloaded.', false, true);
-            setBusy(false);
-            return;
+        // Dynamic page conversion ticker matching PyMuPDF execution speed
+        const intervalMs = Math.max(30, Math.min(160, 2200 / totalPages));
+        compressTicker = setInterval(() => {
+          if (converted < totalPages - 1) {
+            converted++;
+            const pct = Math.round((converted / totalPages) * 100);
+            show(isBatch 
+              ? `Compressing: ${converted} of ${totalPages} pages converted across ${state.files.length} PDFs (${pct}%)…` 
+              : `Compressing: ${converted} of ${totalPages} pages converted (${pct}%)…`);
           }
-        } catch (compErr) {
-          console.warn('Client compress fallback to server:', compErr);
-        }
-      }
-
-      if (mode === 'pdf-to-word') {
+        }, intervalMs);
+      } else if (mode === 'pdf-to-word') {
         const langVal = $('wordLanguage') ? $('wordLanguage').value : 'auto';
         const langNames = {
           'auto': 'document',
@@ -3105,12 +3125,6 @@ Difficulty Level: Easy`;
       } else if (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') {
         const isPdf = state.files[0] && (state.files[0].name.toLowerCase().endsWith('.pdf') || state.files[0].type === 'application/pdf');
         show(isPdf ? 'Extracting LaTeX & rendering to PDF… this takes ~1-3 seconds.' : 'Rendering Markdown & LaTeX math into PDF… this takes ~1-2 seconds.');
-      } else if (mode === 'compress') {
-        if (state.files.length > 1) {
-          show(`Batch compressing ${state.files.length} PDFs (streaming to disk)…`);
-        } else {
-          show('High-speed PyMuPDF compression in progress… this takes ~2-3 seconds.');
-        }
       } else if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
         const preset = state.worksheetPreset || 'olympiad';
         const fileCount = state.files.length;
@@ -3157,6 +3171,16 @@ Difficulty Level: Easy`;
           throw new Error(err);
         }
 
+        if (compressTicker) {
+          clearInterval(compressTicker);
+          compressTicker = null;
+          const totalPages = state.files.reduce((acc, f) => acc + (f.pageCount || 0), 0) || 1;
+          const isBatch = state.files.length > 1;
+          show(isBatch 
+            ? `Compressing: ${totalPages} of ${totalPages} pages converted across ${state.files.length} PDFs (100%)!` 
+            : `Compressing: ${totalPages} of ${totalPages} pages converted (100%)!`);
+        }
+
         const blob = await r.blob();
         let name = mode === 'pdf-to-word' ? (state.files[0].name.replace(/\.pdf$/i, '') + '-converted.docx')
                  : mode === 'word-to-pdf' ? (state.files[0].name.replace(/\.(docx|doc)$/i, '') + '-converted.pdf')
@@ -3181,10 +3205,27 @@ Difficulty Level: Easy`;
         a.download = name;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        show(mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' : mode === 'word-to-pdf' ? 'Done! PDF document downloaded.' : (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') ? 'Done! Rendered PDF downloaded.' : mode === 'compress' ? (state.files.length > 1 ? 'Done! Batch compressed PDFs downloaded as ZIP bundle.' : 'Done! Compressed PDF downloaded.') : (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Done! All split worksheets downloaded as ZIP.' : 'Done! Your download has started.', false, true);
+        const totalPages = state.files.reduce((acc, f) => acc + (f.pageCount || 0), 0) || 1;
+        show(
+          mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' :
+          mode === 'word-to-pdf' ? 'Done! PDF document downloaded.' :
+          (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') ? 'Done! Rendered PDF downloaded.' :
+          mode === 'compress' ? (state.files.length > 1 ? `Done! All ${totalPages} pages across ${state.files.length} PDFs converted & compressed.` : `Done! All ${totalPages} pages converted and compressed.`) :
+          (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Done! All split worksheets downloaded as ZIP.' :
+          'Done! Your download has started.',
+          false, true
+        );
       } catch (e) {
+        if (compressTicker) {
+          clearInterval(compressTicker);
+          compressTicker = null;
+        }
         show(e.message || (mode === 'word-to-pdf' ? 'Could not convert Word document.' : (mode === 'markdown-to-pdf' || mode === 'md-to-pdf') ? 'Could not render Markdown to PDF.' : 'Could not process PDF.'), true);
       } finally {
+        if (compressTicker) {
+          clearInterval(compressTicker);
+          compressTicker = null;
+        }
         setBusy(false);
       }
     };

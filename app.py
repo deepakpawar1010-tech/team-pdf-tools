@@ -456,7 +456,7 @@ def compress_pdf():
                 output_path = out_tmp.name
 
             doc = fitz.open(input_path)
-            doc.save(output_path, garbage=4, deflate=True, clean=True)
+            doc.save(output_path, garbage=4, deflate=True, clean=True, deflate_images=1, deflate_fonts=1)
             doc.close()
             del doc
             gc.collect()
@@ -500,7 +500,7 @@ def compress_pdf():
                 temp_compressed_files.append(comp_path)
 
                 doc = fitz.open(in_path)
-                doc.save(comp_path, garbage=4, deflate=True, clean=True)
+                doc.save(comp_path, garbage=4, deflate=True, clean=True, deflate_images=1, deflate_fonts=1)
                 doc.close()
                 del doc
 
