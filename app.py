@@ -26,6 +26,8 @@ from pypdf import PdfReader, PdfWriter
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 word_lock = threading.Lock()
+compress_jobs = {}
+compress_jobs_lock = threading.Lock()
 
 try:
     from pdf2docx import Converter
@@ -785,193 +787,144 @@ def merge_pdf():
 @app.post("/api/compress")
 def compress_pdf():
     input_paths = []
-    output_path = None
-    temp_compressed_files = []
+    job_id = uuid.uuid4().hex
     try:
         uploads = request.files.getlist("files") or ([request.files.get("file")] if request.files.get("file") else [])
-        if not uploads or not any(getattr(u, "filename", None) for u in uploads):
+        if not uploads or not any(getattr(upload, "filename", None) for upload in uploads):
             raise ValueError("Please upload at least one PDF file to compress.")
-
         for upload in uploads:
             valid_pdf(upload)
-
         preset = request.form.get("quality", "balanced").strip().lower()
 
-        # Case 1: Single file upload
-        if len(uploads) == 1:
-            upload = uploads[0]
+        with compress_jobs_lock:
+            if any(job["status"] in ("queued", "processing") for job in compress_jobs.values()):
+                return jsonify({"error": "Another compression job is running. Please wait for it to finish."}), 429
+            compress_jobs[job_id] = {"status": "queued", "error": None, "output_path": None,
+                                     "input_paths": [], "download_name": None, "mimetype": None}
+
+        file_entries = []
+        for upload in uploads:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
                 input_path = in_tmp.name
             input_paths.append(input_path)
             upload.save(input_path)
+            file_entries.append((input_path, upload.filename))
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as out_tmp:
-                output_path = out_tmp.name
-
-            stats = compress_single_pdf_optimized(
-                input_path,
-                output_path,
-                preset=preset,
-                max_ceiling_mb=COMPRESSION_PRESETS.get(preset, COMPRESSION_PRESETS["balanced"])["max_mb"],
-            )
-
-            logger.info(
-                "[COMPRESS]\n"
-                "Input: %.2f MB\n"
-                "Preset: %s\n"
-                "Images Found: %d\n"
-                "Images Optimized: %d\n"
-                "Attempts: %d\n"
-                "Open: %.4fs\n"
-                "Analysis: %.4fs\n"
-                "Image Opt: %.4fs\n"
-                "Save: %.4fs\n"
-                "Output: %.2f MB (%.1f%% reduction)\n"
-                "Total: %.4fs",
-                stats["input_mb"],
-                preset,
-                stats.get("images_found", 0),
-                stats.get("images_opt", 0),
-                stats.get("attempts", 1),
-                stats.get("open_time", 0.0),
-                stats.get("analysis_time", 0.0),
-                stats.get("opt_time", 0.0),
-                stats.get("save_time", 0.0),
-                stats["output_mb"],
-                stats["saved_pct"],
-                stats["total_time"],
-            )
-
-            @after_this_request
-            def cleanup_single(response):
-                for p in input_paths:
-                    try:
-                        if os.path.exists(p):
-                            os.remove(p)
-                    except Exception:
-                        pass
-                try:
-                    if output_path and os.path.exists(output_path):
-                        os.remove(output_path)
-                except Exception:
-                    pass
-                return response
-
-            return send_file(
-                output_path,
-                as_attachment=True,
-                download_name=output_name(upload.filename, "compressed"),
-                mimetype="application/pdf",
-            )
-
-        # Case 2: Batch conversion (Multiple PDF files) -> Output as ZIP archive
-        t_batch_start = time.perf_counter()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as zip_tmp:
-            output_path = zip_tmp.name
-
-        seen_names = {}
-        total_batch_in_bytes = 0
-        total_batch_out_bytes = 0
-
-        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for upload in uploads:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
-                    in_path = in_tmp.name
-                input_paths.append(in_path)
-                upload.save(in_path)
-                total_batch_in_bytes += os.path.getsize(in_path)
-
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as comp_tmp:
-                    comp_path = comp_tmp.name
-                temp_compressed_files.append(comp_path)
-
-                compress_single_pdf_optimized(
-                    in_path,
-                    comp_path,
-                    preset=preset,
-                    max_ceiling_mb=COMPRESSION_PRESETS.get(preset, COMPRESSION_PRESETS["balanced"])["max_mb"],
-                )
-                comp_size = os.path.getsize(comp_path)
-                total_batch_out_bytes += comp_size
-
-                base_entry_name = output_name(upload.filename, "compressed")
-                if base_entry_name in seen_names:
-                    seen_names[base_entry_name] += 1
-                    stem = Path(base_entry_name).stem
-                    entry_name = f"{stem}_{seen_names[base_entry_name]}.pdf"
-                else:
-                    seen_names[base_entry_name] = 1
-                    entry_name = base_entry_name
-
-                zf.write(comp_path, arcname=entry_name)
-                try:
-                    os.remove(comp_path)
-                except Exception:
-                    pass
-
-        t_batch_total = time.perf_counter() - t_batch_start
-        zip_size = os.path.getsize(output_path)
-
-        logger.info(
-            "[COMPRESS BATCH]\n"
-            "Input Files: %d\n"
-            "Input Total: %.2f MB\n"
-            "Output ZIP: %.2f MB\n"
-            "Total Time: %.4fs",
-            len(uploads),
-            total_batch_in_bytes / (1024 * 1024),
-            zip_size / (1024 * 1024),
-            t_batch_total,
-        )
-
-        @after_this_request
-        def cleanup_batch(response):
-            for p in input_paths:
-                try:
-                    if os.path.exists(p):
-                        os.remove(p)
-                except Exception:
-                    pass
-            for p in temp_compressed_files:
-                try:
-                    if os.path.exists(p):
-                        os.remove(p)
-                except Exception:
-                    pass
-            try:
-                if output_path and os.path.exists(output_path):
-                    os.remove(output_path)
-            except Exception:
-                pass
-            return response
-
-        return send_file(
-            output_path,
-            as_attachment=True,
-            download_name="compressed-pdfs-bundle.zip",
-            mimetype="application/zip",
-        )
+        with compress_jobs_lock:
+            compress_jobs[job_id]["input_paths"] = input_paths[:]
+        threading.Thread(target=run_compression_job, args=(job_id, file_entries, preset),
+                         daemon=True, name=f"compress-{job_id[:8]}").start()
+        return jsonify({"job_id": job_id, "status": "queued"}), 202
     except Exception as error:
-        logger.exception("Compress PDF failed: %s", error)
-        for p in input_paths:
+        logger.exception("Could not start compression job: %s", error)
+        for path in input_paths:
             try:
-                if os.path.exists(p):
-                    os.remove(p)
-            except Exception:
+                if os.path.exists(path):
+                    os.remove(path)
+            except OSError:
                 pass
-        for p in temp_compressed_files:
-            try:
-                if os.path.exists(p):
-                    os.remove(p)
-            except Exception:
-                pass
-        if output_path and os.path.exists(output_path):
-            try:
-                os.remove(output_path)
-            except Exception:
-                pass
+        with compress_jobs_lock:
+            if job_id in compress_jobs:
+                compress_jobs[job_id].update(status="failed", error=str(error))
         return jsonify({"error": str(error)}), 400
 
+
+def run_compression_job(job_id, file_entries, preset):
+    output_path = None
+    temporary_paths = []
+    started = time.perf_counter()
+    try:
+        with compress_jobs_lock:
+            compress_jobs[job_id]["status"] = "processing"
+        max_mb = COMPRESSION_PRESETS.get(preset, COMPRESSION_PRESETS["balanced"])["max_mb"]
+        if len(file_entries) == 1:
+            input_path, filename = file_entries[0]
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as out_tmp:
+                output_path = out_tmp.name
+            stats = compress_single_pdf_optimized(input_path, output_path, preset=preset, max_ceiling_mb=max_mb)
+            download_name = output_name(filename, "compressed")
+            mimetype = "application/pdf"
+            logger.info("[COMPRESS JOB] Input %.2f MB, output %.2f MB, preset %s, elapsed %.1fs",
+                        stats["input_mb"], stats["output_mb"], preset, time.perf_counter() - started)
+        else:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as zip_tmp:
+                output_path = zip_tmp.name
+            seen_names = {}
+            with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for input_path, filename in file_entries:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as comp_tmp:
+                        comp_path = comp_tmp.name
+                    temporary_paths.append(comp_path)
+                    compress_single_pdf_optimized(input_path, comp_path, preset=preset, max_ceiling_mb=max_mb)
+                    entry_name = output_name(filename, "compressed")
+                    if entry_name in seen_names:
+                        seen_names[entry_name] += 1
+                        entry_name = f"{Path(entry_name).stem}_{seen_names[entry_name]}.pdf"
+                    else:
+                        seen_names[entry_name] = 1
+                    zf.write(comp_path, arcname=entry_name)
+                    os.remove(comp_path)
+                    temporary_paths.remove(comp_path)
+            download_name = "compressed-pdfs-bundle.zip"
+            mimetype = "application/zip"
+            logger.info("[COMPRESS BATCH JOB] %d PDFs finished in %.1fs", len(file_entries), time.perf_counter() - started)
+
+        with compress_jobs_lock:
+            compress_jobs[job_id].update(status="complete", output_path=output_path,
+                                          download_name=download_name, mimetype=mimetype)
+        output_path = None
+    except Exception as error:
+        logger.exception("Compression job %s failed: %s", job_id, error)
+        with compress_jobs_lock:
+            if job_id in compress_jobs:
+                compress_jobs[job_id].update(status="failed", error=str(error))
+    finally:
+        for path in [entry[0] for entry in file_entries] + temporary_paths:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except OSError:
+                pass
+        if output_path:
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
+
+
+@app.get("/api/compress/status/<job_id>")
+def compress_job_status(job_id):
+    with compress_jobs_lock:
+        job = compress_jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Compression job not found. Please start it again."}), 404
+        return jsonify({"status": job["status"], "error": job["error"]})
+
+
+@app.get("/api/compress/download/<job_id>")
+def download_compressed_job(job_id):
+    with compress_jobs_lock:
+        job = compress_jobs.get(job_id)
+        if not job or job["status"] != "complete" or not job["output_path"]:
+            return jsonify({"error": "Compressed file is not ready for download."}), 404
+        output_path = job["output_path"]
+        download_name = job["download_name"]
+        mimetype = job["mimetype"]
+    response = send_file(output_path, as_attachment=True, download_name=download_name, mimetype=mimetype)
+
+    def cleanup_downloaded_job():
+        with compress_jobs_lock:
+            finished = compress_jobs.pop(job_id, None)
+        if finished:
+            for path in finished["input_paths"] + [output_path]:
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except OSError:
+                    pass
+
+    response.call_on_close(cleanup_downloaded_job)
+    return response
 
 @app.post("/api/pdf-to-word")
 def pdf_to_word():

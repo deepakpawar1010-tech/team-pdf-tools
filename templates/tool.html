@@ -2854,7 +2854,7 @@
       }
 
       try {
-        const r = await fetch('/api/' + mode, { method: 'POST', body: form });
+        let r = await fetch('/api/' + mode, { method: 'POST', body: form });
         if (!r.ok) {
           let err = `Server returned error (${r.status})`;
           if (r.status === 413) {
@@ -2876,6 +2876,30 @@
             }
           }
           throw new Error(err);
+        }
+
+        if (mode === 'compress') {
+          const job = await r.json();
+          if (!job.job_id) throw new Error(job.error || 'Could not start compression.');
+          if (compressTicker) {
+            clearInterval(compressTicker);
+            compressTicker = null;
+          }
+          let jobState = 'queued';
+          while (jobState === 'queued' || jobState === 'processing') {
+            show(jobState === 'queued' ? 'Upload received. Starting compression…' : 'Compressing on the server… Large PDFs can take a few minutes.');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const statusResponse = await fetch(`/api/compress/status/${job.job_id}`);
+            const statusData = await statusResponse.json();
+            if (!statusResponse.ok) throw new Error(statusData.error || 'Could not check compression status.');
+            jobState = statusData.status;
+            if (jobState === 'failed') throw new Error(statusData.error || 'Compression failed.');
+          }
+          r = await fetch(`/api/compress/download/${job.job_id}`);
+          if (!r.ok) {
+            const data = await r.json().catch(() => ({}));
+            throw new Error(data.error || 'Compressed file could not be downloaded.');
+          }
         }
 
         if (compressTicker) {
