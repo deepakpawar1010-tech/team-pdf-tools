@@ -1134,11 +1134,11 @@
         {% elif tool=='compress' %}
         <label class="field-label" for="quality">Compression Quality</label>
         <select id="quality" class="quality">
-          <option value="small">Smallest file (Fastest download)</option>
-          <option value="balanced" selected>Balanced (Recommended)</option>
-          <option value="best">High Quality (Minimal compression)</option>
-          <option value="ultra">Ultra Clarity (Near-original)</option>
+          <option value="balanced" selected>Balanced — up to 15 MB</option>
+          <option value="high">High Clarity — up to 30 MB</option>
+          <option value="ultra">Ultra Clarity — up to 45 MB</option>
         </select>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 7px; line-height: 1.45;">If needed to meet the size limit, pages may be flattened to images and text may no longer be selectable.</div>
 
         <div id="compressMetaInfo" style="margin-top: 14px; background: white; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; align-items: center; gap: 10px;">
           <div style="width: 32px; height: 32px; border-radius: 8px; background: #ecfdf5; color: #059669; display: grid; place-items: center; font-weight: 800; font-size: 11px;">PDF</div>

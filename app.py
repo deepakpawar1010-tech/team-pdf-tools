@@ -224,11 +224,67 @@ def previews():
 
 
 COMPRESSION_PRESETS = {
-    "small": {"dpi": 110, "quality": 62},
-    "balanced": {"dpi": 150, "quality": 75},
-    "best": {"dpi": 200, "quality": 84},
-    "ultra": {"dpi": 240, "quality": 88},
+    "balanced": {"dpi": 110, "quality": 66, "max_mb": 15.0},
+    "high": {"dpi": 160, "quality": 78, "max_mb": 30.0},
+    "ultra": {"dpi": 220, "quality": 86, "max_mb": 45.0},
 }
+
+
+def rasterize_pdf_to_limit(
+    input_path: str,
+    output_path: str,
+    max_size_bytes: int,
+    start_dpi: int,
+    start_quality: int,
+) -> int:
+    """Last-resort size reduction for image-heavy PDFs; returns final bytes or 0."""
+    dpi = start_dpi
+    quality = start_quality
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            temp_path = tmp.name
+
+        for _ in range(7):
+            source = fitz.open(input_path)
+            raster_doc = fitz.open()
+            try:
+                raster_doc.set_metadata(source.metadata)
+                scale = dpi / 72.0
+                for page in source:
+                    rect = page.rect
+                    pix = page.get_pixmap(
+                        matrix=fitz.Matrix(scale, scale),
+                        colorspace=fitz.csRGB,
+                        alpha=False,
+                        annots=True,
+                    )
+                    jpeg = pix.tobytes("jpeg", jpg_quality=quality)
+                    out_page = raster_doc.new_page(width=rect.width, height=rect.height)
+                    out_page.insert_image(out_page.rect, stream=jpeg)
+                raster_doc.save(temp_path, garbage=3, deflate=False)
+            finally:
+                raster_doc.close()
+                source.close()
+
+            size = os.path.getsize(temp_path)
+            if size <= max_size_bytes:
+                shutil.move(temp_path, output_path)
+                temp_path = None
+                return size
+
+            if dpi <= 40:
+                break
+            ratio = (max_size_bytes / size) ** 0.5
+            dpi = max(40, int(dpi * min(0.84, max(0.55, ratio * 0.92))))
+            quality = max(42, quality - 7)
+        return 0
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 def compress_single_pdf_optimized(
@@ -245,7 +301,9 @@ def compress_single_pdf_optimized(
     input_size = os.path.getsize(input_path)
     input_mb = input_size / (1024 * 1024)
 
-    cfg = COMPRESSION_PRESETS.get(preset, COMPRESSION_PRESETS["balanced"])
+    preset = preset if preset in COMPRESSION_PRESETS else "balanced"
+    cfg = COMPRESSION_PRESETS[preset]
+    max_ceiling_mb = min(max_ceiling_mb, cfg["max_mb"])
     dpi_target = cfg["dpi"]
     quality = cfg["quality"]
 
@@ -294,6 +352,14 @@ def compress_single_pdf_optimized(
         try:
             t, val = doc.xref_get_key(xref, "Length")
             if t == "int" and int(val) >= min_stream_len:
+                # Replacing a base image without its soft mask can turn transparent
+                # content black in PDF viewers. Leave masked images untouched.
+                smask_type, smask_value = doc.xref_get_key(xref, "SMask")
+                mask_type, mask_value = doc.xref_get_key(xref, "Mask")
+                if (smask_type == "xref" and smask_value != "0 0 R") or (
+                    mask_type not in ("null", "none") and mask_value not in ("null", "[]")
+                ):
+                    continue
                 candidates.append((xref, pno))
         except Exception:
             pass
@@ -311,6 +377,17 @@ def compress_single_pdf_optimized(
             shutil.copyfile(input_path, output_path)
             out_size = input_size
         out_mb = out_size / (1024 * 1024)
+        if out_mb > max_ceiling_mb:
+            raster_size = rasterize_pdf_to_limit(
+                input_path, output_path, int(max_ceiling_mb * 1024 * 1024), dpi_target, quality
+            )
+            if not raster_size:
+                raise ValueError(
+                    f"This PDF could not be compressed below {max_ceiling_mb:g} MB with the selected preset. "
+                    "Choose a lower size preset or a smaller source PDF."
+                )
+            out_size = raster_size
+            out_mb = out_size / (1024 * 1024)
         pct_saved = (1.0 - (out_size / input_size)) * 100
         return {
             "input_mb": input_mb,
@@ -359,22 +436,23 @@ def compress_single_pdf_optimized(
         new_h = max(1, int(round(orig_h * scale)))
 
         try:
-            pil_img = Image.open(io.BytesIO(img_bytes))
+            cs = b.get("colorspace", 3)
+            cs_name = b.get("cs-name", "")
+            if cs == 4 or cs_name == "DeviceCMYK":
+                pix = fitz.Pixmap(doc, xref)
+                if pix.colorspace != fitz.csRGB:
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                pil_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            else:
+                pil_img = Image.open(io.BytesIO(img_bytes))
+                if pil_img.mode != "RGB":
+                    pil_img = pil_img.convert("RGB")
+
             if scale < 0.95:
                 pil_img = pil_img.resize((new_w, new_h), Image.Resampling.BILINEAR)
 
             out_buf = io.BytesIO()
-            if ext in ("jpeg", "jpg") or pil_img.mode in ("RGB", "L"):
-                if pil_img.mode not in ("RGB", "L"):
-                    pil_img = pil_img.convert("RGB")
-                pil_img.save(out_buf, format="JPEG", quality=quality)
-            elif pil_img.mode in ("RGBA", "LA", "P"):
-                if pil_img.mode == "RGBA" and min(pil_img.getchannel("A").getextrema()) == 255:
-                    pil_img.convert("RGB").save(out_buf, format="JPEG", quality=quality)
-                else:
-                    pil_img.save(out_buf, format="PNG")
-            else:
-                pil_img.save(out_buf, format="JPEG", quality=quality)
+            pil_img.save(out_buf, format="JPEG", quality=quality)
 
             new_bytes = out_buf.getvalue()
             if len(new_bytes) < orig_len * 0.92:
@@ -412,6 +490,17 @@ def compress_single_pdf_optimized(
         shutil.copyfile(input_path, output_path)
         out_size = input_size
     out_mb = out_size / (1024 * 1024)
+    if out_mb > max_ceiling_mb:
+        raster_size = rasterize_pdf_to_limit(
+            input_path, output_path, int(max_ceiling_mb * 1024 * 1024), dpi_target, quality
+        )
+        if not raster_size:
+            raise ValueError(
+                f"This PDF could not be compressed below {max_ceiling_mb:g} MB with the selected preset. "
+                "Choose a lower size preset or a smaller source PDF."
+            )
+        out_size = raster_size
+        out_mb = out_size / (1024 * 1024)
     total_time = time.perf_counter() - t_start
     pct_saved = (1.0 - (out_size / input_size)) * 100
 
@@ -723,7 +812,7 @@ def compress_pdf():
                 input_path,
                 output_path,
                 preset=preset,
-                max_ceiling_mb=45.0,
+                max_ceiling_mb=COMPRESSION_PRESETS.get(preset, COMPRESSION_PRESETS["balanced"])["max_mb"],
             )
 
             logger.info(
@@ -800,7 +889,7 @@ def compress_pdf():
                     in_path,
                     comp_path,
                     preset=preset,
-                    max_ceiling_mb=45.0,
+                    max_ceiling_mb=COMPRESSION_PRESETS.get(preset, COMPRESSION_PRESETS["balanced"])["max_mb"],
                 )
                 comp_size = os.path.getsize(comp_path)
                 total_batch_out_bytes += comp_size
