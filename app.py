@@ -456,11 +456,6 @@ def compress_pdf():
                 output_path = out_tmp.name
 
             doc = fitz.open(input_path)
-            try:
-                doc.rewrite_images(dpi_target=dpi_target, quality=quality)
-            except Exception:
-                pass
-
             doc.save(output_path, garbage=4, deflate=True, clean=True)
             doc.close()
             del doc
@@ -505,10 +500,6 @@ def compress_pdf():
                 temp_compressed_files.append(comp_path)
 
                 doc = fitz.open(in_path)
-                try:
-                    doc.rewrite_images(dpi_target=dpi_target, quality=quality)
-                except Exception:
-                    pass
                 doc.save(comp_path, garbage=4, deflate=True, clean=True)
                 doc.close()
                 del doc

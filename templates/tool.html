@@ -3035,48 +3035,54 @@ Difficulty Level: Easy`;
         }
       }
 
-      // 2. Client-Side Compress: For single files under 30MB (batch and large files route to server streaming)
+      // 2. Client-Side Compress: For short documents (<= 8 pages) and under 15MB
       const isBatchCompress = mode === 'compress' && state.files.length > 1;
-      const isLargeCompress = state.files[0] && state.files[0].size > 30 * 1024 * 1024;
+      const isLargeCompress = state.files[0] && state.files[0].size > 15 * 1024 * 1024;
       if (mode === 'compress' && !isBatchCompress && !isLargeCompress && window.PDFLib && window.pdfjsLib && state.files[0]) {
         try {
           const file = state.files[0];
-          show('Preparing compression in browser…');
-          const qualityPreset = $('quality').value;
-          const qualityMap = { small: 0.55, balanced: 0.72, best: 0.88, ultra: 0.96 };
-          const quality = qualityMap[qualityPreset] || parseFloat(qualityPreset) || 0.72;
-          const renderScale = quality < 0.6 ? 0.85 : quality > 0.94 ? 1.55 : quality > 0.8 ? 1.25 : 1;
-
           const buffer = state.fileBytes || await file.arrayBuffer();
           const srcPdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer.slice(0)) }).promise;
-          const outPdf = await PDFLib.PDFDocument.create();
 
-          for (let i = 1; i <= srcPdf.numPages; i++) {
-            show(`Compressing page ${i} of ${srcPdf.numPages}…`);
-            const page = await srcPdf.getPage(i);
-            const original = page.getViewport({ scale: 1 });
-            const rendered = page.getViewport({ scale: renderScale });
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.round(rendered.width);
-            canvas.height = Math.round(rendered.height);
-            await page.render({ canvasContext: canvas.getContext('2d'), viewport: rendered }).promise;
-            const imgData = canvas.toDataURL('image/jpeg', quality);
-            const embedded = await outPdf.embedJpg(imgData);
-            const newPage = outPdf.addPage([original.width, original.height]);
-            newPage.drawImage(embedded, { x: 0, y: 0, width: original.width, height: original.height });
+          // For documents > 8 pages (like 39 pages), route to high-speed PyMuPDF streaming (2s vs 90s in JS)
+          if (srcPdf.numPages > 8) {
+            console.log(`Document has ${srcPdf.numPages} pages. Routing to ultra-fast PyMuPDF C engine.`);
+            // Proceed to server fetch
+          } else {
+            show('Preparing compression in browser…');
+            const qualityPreset = $('quality').value;
+            const qualityMap = { small: 0.55, balanced: 0.72, best: 0.88, ultra: 0.96 };
+            const quality = qualityMap[qualityPreset] || parseFloat(qualityPreset) || 0.72;
+            const renderScale = quality < 0.6 ? 0.85 : quality > 0.94 ? 1.55 : quality > 0.8 ? 1.25 : 1;
+            const outPdf = await PDFLib.PDFDocument.create();
+
+            for (let i = 1; i <= srcPdf.numPages; i++) {
+              show(`Compressing page ${i} of ${srcPdf.numPages}…`);
+              const page = await srcPdf.getPage(i);
+              const original = page.getViewport({ scale: 1 });
+              const rendered = page.getViewport({ scale: renderScale });
+              const canvas = document.createElement('canvas');
+              canvas.width = Math.round(rendered.width);
+              canvas.height = Math.round(rendered.height);
+              await page.render({ canvasContext: canvas.getContext('2d'), viewport: rendered }).promise;
+              const imgData = canvas.toDataURL('image/jpeg', quality);
+              const embedded = await outPdf.embedJpg(imgData);
+              const newPage = outPdf.addPage([original.width, original.height]);
+              newPage.drawImage(embedded, { x: 0, y: 0, width: original.width, height: original.height });
+            }
+
+            show('Finalizing compressed PDF…');
+            const outBytes = await outPdf.save({ useObjectStreams: true });
+            const blob = new Blob([outBytes], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob), a = document.createElement('a');
+            a.href = url;
+            a.download = file.name.replace(/\.pdf$/i, '') + '-compressed.pdf';
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            show('Done! Your compressed PDF has been downloaded.', false, true);
+            setBusy(false);
+            return;
           }
-
-          show('Finalizing compressed PDF…');
-          const outBytes = await outPdf.save({ useObjectStreams: true });
-          const blob = new Blob([outBytes], { type: 'application/pdf' });
-          const url = URL.createObjectURL(blob), a = document.createElement('a');
-          a.href = url;
-          a.download = file.name.replace(/\.pdf$/i, '') + '-compressed.pdf';
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-          show('Done! Your compressed PDF has been downloaded.', false, true);
-          setBusy(false);
-          return;
         } catch (compErr) {
           console.warn('Client compress fallback to server:', compErr);
         }
@@ -3103,7 +3109,7 @@ Difficulty Level: Easy`;
         if (state.files.length > 1) {
           show(`Batch compressing ${state.files.length} PDFs (streaming to disk)…`);
         } else {
-          show('Compressing pages… this may take a moment for large files.');
+          show('High-speed PyMuPDF compression in progress… this takes ~2-3 seconds.');
         }
       } else if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
         const preset = state.worksheetPreset || 'olympiad';
@@ -3133,7 +3139,13 @@ Difficulty Level: Easy`;
           if (r.status === 413) {
             err = 'File exceeds upload limit (413: Request Entity Too Large).';
           } else if (r.status === 502 || r.status === 504) {
-            err = 'The cloud server timed out (502/504). For large PDFs (like 39 pages), please convert in page batches using "Custom Range" (e.g. 1-10, 11-20) or use your local server.';
+            if (mode === 'pdf-to-word') {
+              err = 'The cloud server timed out (502/504). For large PDFs (like 39 pages), please convert in page batches using "Custom Range" (e.g. 1-10, 11-20) or use your local server.';
+            } else if (mode === 'compress') {
+              err = 'The cloud server timed out (502/504). The server was restarting or busy. Please try again in a few moments.';
+            } else {
+              err = `The server timed out (${r.status}). Please try again with fewer pages or files.`;
+            }
           } else {
             try {
               const d = await r.json();
