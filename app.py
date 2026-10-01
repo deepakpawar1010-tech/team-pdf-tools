@@ -15,6 +15,7 @@ import tempfile
 import threading
 import subprocess
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image
 import pymupdf
@@ -223,10 +224,10 @@ def previews():
 
 
 COMPRESSION_PRESETS = {
-    "small": {"dpi": 110, "quality": 58},
-    "balanced": {"dpi": 150, "quality": 72},
-    "best": {"dpi": 200, "quality": 82},
-    "ultra": {"dpi": 280, "quality": 90},
+    "small": {"dpi": 110, "quality": 62},
+    "balanced": {"dpi": 150, "quality": 75},
+    "best": {"dpi": 200, "quality": 84},
+    "ultra": {"dpi": 240, "quality": 88},
 }
 
 
@@ -236,11 +237,9 @@ def compress_single_pdf_optimized(
     preset: str = "balanced",
     max_ceiling_mb: float = 45.0,
 ) -> dict:
-    """Intelligently compresses a PDF using structural analysis, effective DPI downsampling,
-
-    digest deduplication, and quality-preserved stream compaction.
+    """Intelligently compresses a PDF using fast xref metadata filtering, multithreaded
+    image optimization, and PyMuPDF stream compaction.
     Guarantees that selectable text, vector artwork, annotations, and page layout are 100% preserved.
-    Enforces a 45 MB ceiling target through progressive iteration without destroying visual quality.
     """
     t_start = time.perf_counter()
     input_size = os.path.getsize(input_path)
@@ -274,26 +273,40 @@ def compress_single_pdf_optimized(
         }
 
     t_analysis_start = time.perf_counter()
-    # Discover all unique image xrefs and their displaying page index
+    # 1. Discover unique image xrefs and their displaying page dimensions
     image_xrefs = {}
+    page_dims = {}
     for pno in range(total_pages):
         page = doc[pno]
-        for img_info in page.get_images(full=True):
+        rect = page.rect
+        page_dims[pno] = (rect.width, rect.height)
+        for img_info in page.get_images():
             xref = img_info[0]
             if xref not in image_xrefs:
                 image_xrefs[xref] = pno
 
     total_images = len(image_xrefs)
+
+    # 2. Fast candidate filter via xref Length key (skips thousands of tiny glyphs/icons)
+    min_stream_len = 35 * 1024 if preset != "ultra" else 45 * 1024
+    candidates = []
+    for xref, pno in image_xrefs.items():
+        try:
+            t, val = doc.xref_get_key(xref, "Length")
+            if t == "int" and int(val) >= min_stream_len:
+                candidates.append((xref, pno))
+        except Exception:
+            pass
+
     t_analysis = time.perf_counter() - t_analysis_start
 
-    # If no images exist in the PDF, perform stream compaction on font/content streams
-    if total_images == 0:
+    # If no candidate images, perform fast stream compaction with garbage=2, deflate=True
+    if not candidates:
         t_save_start = time.perf_counter()
         doc.save(output_path, garbage=2, deflate=True)
         doc.close()
         t_save = time.perf_counter() - t_save_start
         out_size = os.path.getsize(output_path)
-        # Never produce an output larger than original
         if out_size >= input_size:
             shutil.copyfile(input_path, output_path)
             out_size = input_size
@@ -304,7 +317,7 @@ def compress_single_pdf_optimized(
             "output_mb": out_mb,
             "saved_pct": pct_saved,
             "total_time": time.perf_counter() - t_start,
-            "images_found": 0,
+            "images_found": total_images,
             "images_opt": 0,
             "attempts": 1,
             "open_time": t_open,
@@ -313,128 +326,92 @@ def compress_single_pdf_optimized(
             "save_time": t_save,
         }
 
-    def run_image_opt_pass(target_doc, target_dpi, target_quality):
-        opt_count = 0
-        digest_cache = {}  # digest -> new_bytes (or None if recompression had no benefit)
+    # 3. Extract candidate image streams
+    t_opt_start = time.perf_counter()
+    extracted = []
+    for xref, pno in candidates:
+        try:
+            b = doc.extract_image(xref)
+            if b and len(b.get("image", b"")) >= min_stream_len:
+                pw, ph = page_dims.get(pno, (595.0, 842.0))
+                extracted.append((xref, pno, b, pw, ph))
+        except Exception:
+            pass
 
-        for xref, pno in image_xrefs.items():
+    # 4. Multithreaded Pillow optimization
+    def process_candidate_image(item):
+        xref, pno, b, pw, ph = item
+        img_bytes = b["image"]
+        orig_len = len(img_bytes)
+        orig_w = b.get("width", 0)
+        orig_h = b.get("height", 0)
+        ext = b.get("ext", "").lower()
+
+        max_w = max(1, int(round((pw / 72.0) * dpi_target)))
+        max_h = max(1, int(round((ph / 72.0) * dpi_target)))
+        scale = min(1.0, max_w / max(1, orig_w), max_h / max(1, orig_h))
+
+        # If already fits target resolution and is JPEG in high/ultra quality, skip re-encoding
+        if scale >= 0.96 and ext in ("jpeg", "jpg") and quality >= 82:
+            return None
+
+        new_w = max(1, int(round(orig_w * scale)))
+        new_h = max(1, int(round(orig_h * scale)))
+
+        try:
+            pil_img = Image.open(io.BytesIO(img_bytes))
+            if scale < 0.95:
+                pil_img = pil_img.resize((new_w, new_h), Image.Resampling.BILINEAR)
+
+            out_buf = io.BytesIO()
+            if ext in ("jpeg", "jpg") or pil_img.mode in ("RGB", "L"):
+                if pil_img.mode not in ("RGB", "L"):
+                    pil_img = pil_img.convert("RGB")
+                pil_img.save(out_buf, format="JPEG", quality=quality)
+            elif pil_img.mode in ("RGBA", "LA", "P"):
+                if pil_img.mode == "RGBA" and min(pil_img.getchannel("A").getextrema()) == 255:
+                    pil_img.convert("RGB").save(out_buf, format="JPEG", quality=quality)
+                else:
+                    pil_img.save(out_buf, format="PNG")
+            else:
+                pil_img.save(out_buf, format="JPEG", quality=quality)
+
+            new_bytes = out_buf.getvalue()
+            if len(new_bytes) < orig_len * 0.92:
+                return (xref, pno, new_bytes)
+        except Exception:
+            pass
+        return None
+
+    workers = min(8, os.cpu_count() or 4)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        opt_results = list(pool.map(process_candidate_image, extracted))
+
+    # 5. Replace optimized image streams in PyMuPDF doc
+    images_opt = 0
+    for res in opt_results:
+        if res:
+            xref, pno, new_bytes = res
             try:
-                base_img = target_doc.extract_image(xref)
-                if not base_img:
-                    continue
-                img_bytes = base_img.get("image", b"")
-                orig_size = len(img_bytes)
-                orig_w = base_img.get("width", 0)
-                orig_h = base_img.get("height", 0)
-                ext = base_img.get("ext", "").lower()
-
-                # Skip tiny images (decorations, logos, bullets, mathematical symbols)
-                if orig_size < 12 * 1024 or (orig_w < 64 and orig_h < 64):
-                    continue
-
-                digest = base_img.get("digest") or hash(img_bytes)
-                if digest in digest_cache:
-                    cached_bytes = digest_cache[digest]
-                    if cached_bytes:
-                        page = target_doc[pno]
-                        page.replace_image(xref, stream=cached_bytes)
-                        opt_count += 1
-                    continue
-
-                page = target_doc[pno]
-                rects = page.get_image_rects(xref)
-                if rects:
-                    r = rects[0]
-                    disp_w = max(1.0, abs(r.width))
-                    disp_h = max(1.0, abs(r.height))
-                    effective_dpi = max((orig_w / disp_w) * 72.0, (orig_h / disp_h) * 72.0)
-                else:
-                    effective_dpi = 150.0
-
-                # Downsample only if effective DPI significantly exceeds target DPI (>15% margin)
-                if effective_dpi > target_dpi * 1.15:
-                    scale = target_dpi / effective_dpi
-                    new_w = max(1, int(round(orig_w * scale)))
-                    new_h = max(1, int(round(orig_h * scale)))
-                else:
-                    new_w = orig_w
-                    new_h = orig_h
-                    scale = 1.0
-
-                pil_img = Image.open(io.BytesIO(img_bytes))
-                if scale < 0.98:
-                    resample = Image.Resampling.BILINEAR if (orig_w * orig_h > 8_000_000) else Image.Resampling.LANCZOS
-                    pil_img = pil_img.resize((new_w, new_h), resample)
-
-                out_buf = io.BytesIO()
-                if ext in ("jpeg", "jpg") or pil_img.mode in ("RGB", "L"):
-                    if pil_img.mode not in ("RGB", "L"):
-                        pil_img = pil_img.convert("RGB")
-                    pil_img.save(out_buf, format="JPEG", quality=target_quality, optimize=True)
-                elif pil_img.mode in ("RGBA", "LA", "P"):
-                    # If alpha is completely opaque, convert to JPEG to eliminate alpha overhead
-                    if pil_img.mode == "RGBA" and min(pil_img.getchannel("A").getextrema()) == 255:
-                        pil_img.convert("RGB").save(out_buf, format="JPEG", quality=target_quality, optimize=True)
-                    else:
-                        pil_img.save(out_buf, format="PNG", optimize=True)
-                else:
-                    pil_img.save(out_buf, format="JPEG", quality=target_quality, optimize=True)
-
-                new_bytes = out_buf.getvalue()
-                # Strict benefit check: only replace if size savings is at least 5%
-                if len(new_bytes) < orig_size * 0.95:
-                    digest_cache[digest] = new_bytes
-                    page.replace_image(xref, stream=new_bytes)
-                    opt_count += 1
-                else:
-                    digest_cache[digest] = None
+                doc[pno].replace_image(xref, stream=new_bytes)
+                images_opt += 1
             except Exception:
                 pass
-        return opt_count
 
-    t_opt_start = time.perf_counter()
-    images_opt = run_image_opt_pass(doc, dpi_target, quality)
     t_opt = time.perf_counter() - t_opt_start
 
+    # 6. Save optimized document using garbage=2, deflate=True (fast and clean)
     t_save_start = time.perf_counter()
-    doc.save(output_path, garbage=4, deflate=True)
+    doc.save(output_path, garbage=2, deflate=True)
     t_save = time.perf_counter() - t_save_start
-
-    out_size = os.path.getsize(output_path)
-    out_mb = out_size / (1024 * 1024)
-    attempts = 1
-
-    # Progressive iteration: if output exceeds 45 MB ceiling, step down compression
-    if out_mb > max_ceiling_mb and attempts < 3:
-        doc.close()
-        doc = fitz.open(input_path)
-        attempts += 1
-        step_dpi = min(dpi_target, 140)
-        step_q = min(quality, 68)
-        images_opt = run_image_opt_pass(doc, step_dpi, step_q)
-        doc.save(output_path, garbage=4, deflate=True)
-        out_size = os.path.getsize(output_path)
-        out_mb = out_size / (1024 * 1024)
-
-        if out_mb > max_ceiling_mb and attempts < 3:
-            doc.close()
-            doc = fitz.open(input_path)
-            attempts += 1
-            step_dpi = 100
-            step_q = 55
-            images_opt = run_image_opt_pass(doc, step_dpi, step_q)
-            doc.save(output_path, garbage=4, deflate=True)
-            out_size = os.path.getsize(output_path)
-            out_mb = out_size / (1024 * 1024)
-
     doc.close()
 
-    # Never produce a file larger than input
+    out_size = os.path.getsize(output_path)
+    # Never produce an output larger than original
     if out_size >= input_size:
         shutil.copyfile(input_path, output_path)
         out_size = input_size
-        out_mb = input_mb
-
+    out_mb = out_size / (1024 * 1024)
     total_time = time.perf_counter() - t_start
     pct_saved = (1.0 - (out_size / input_size)) * 100
 
@@ -445,7 +422,7 @@ def compress_single_pdf_optimized(
         "total_time": total_time,
         "images_found": total_images,
         "images_opt": images_opt,
-        "attempts": attempts,
+        "attempts": 1,
         "open_time": t_open,
         "analysis_time": t_analysis,
         "opt_time": t_opt,

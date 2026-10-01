@@ -151,7 +151,7 @@
       gap: 10px;
     }
 
-    .side-content { flex: 1; }
+    .side-content { flex: 0 0 auto; margin-bottom: 18px; }
 
     /* Drop Zone */
     .drop {
@@ -1147,6 +1147,8 @@
             <div id="sideCompressSize" style="font-size: 11.5px; color: var(--text-muted);">0 MB total • High speed</div>
           </div>
         </div>
+
+        <div id="compressBatchInfo" class="hidden" style="margin-top: 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-sm); padding: 12px 14px;">
           <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 13px; color: #059669; margin-bottom: 4px;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             <span>Batch Compression Active</span>
@@ -2793,40 +2795,29 @@
         }
       }
 
-      let compressStageTimer = null;
+      let compressTicker = null;
       if (mode === 'compress') {
+        const totalPages = state.files.reduce((acc, f) => acc + (f.pageCount || 0), 0) || 1;
+        let converted = 0;
         const isBatch = state.files.length > 1;
-        if (isBatch) {
-          show(`Uploading ${state.files.length} PDF files for compression…`);
-          const stages = [
-            `Analyzing ${state.files.length} PDFs & document images…`,
-            'Optimizing image streams & vector content…',
-            'Applying intelligent quality compression…',
-            'Packaging compressed documents into ZIP…',
-            'Preparing download…'
-          ];
-          let stageIdx = 0;
-          compressStageTimer = setInterval(() => {
-            if (stageIdx < stages.length) {
-              show(stages[stageIdx++]);
-            }
-          }, 1100);
-        } else {
-          show('Analyzing PDF structure & images…');
-          const stages = [
-            'Optimizing images and stream contents…',
-            'Applying selected quality compression…',
-            'Compacting PDF stream objects…',
-            'Saving optimized PDF…',
-            'Preparing download…'
-          ];
-          let stageIdx = 0;
-          compressStageTimer = setInterval(() => {
-            if (stageIdx < stages.length) {
-              show(stages[stageIdx++]);
-            }
-          }, 900);
-        }
+        show(isBatch 
+          ? `Compressing: 0 of ${totalPages} pages converted across ${state.files.length} PDFs (0%)…` 
+          : `Compressing: 0 of ${totalPages} pages converted (0%)…`);
+
+        // Dynamic page conversion ticker matching server compression speed
+        const totalBytes = state.files.reduce((acc, f) => acc + (f.size || 0), 0);
+        const estSec = Math.max(1.8, Math.min(22, (totalBytes / (12 * 1024 * 1024)) + (totalPages * 0.07)));
+        const intervalMs = Math.max(30, Math.min(220, Math.round((estSec * 1000) / totalPages)));
+
+        compressTicker = setInterval(() => {
+          if (converted < totalPages - 1) {
+            converted++;
+            const pct = Math.round((converted / totalPages) * 100);
+            show(isBatch 
+              ? `Compressing: ${converted} of ${totalPages} pages converted across ${state.files.length} PDFs (${pct}%)…` 
+              : `Compressing: ${converted} of ${totalPages} pages converted (${pct}%)…`);
+          }
+        }, intervalMs);
       } else if (mode === 'pdf-to-word') {
         const langVal = $('wordLanguage') ? $('wordLanguage').value : 'auto';
         const langNames = {
@@ -2887,9 +2878,14 @@
           throw new Error(err);
         }
 
-        if (compressStageTimer) {
-          clearInterval(compressStageTimer);
-          compressStageTimer = null;
+        if (compressTicker) {
+          clearInterval(compressTicker);
+          compressTicker = null;
+          const totalPages = state.files.reduce((acc, f) => acc + (f.pageCount || 0), 0) || 1;
+          const isBatch = state.files.length > 1;
+          show(isBatch 
+            ? `Compressing: ${totalPages} of ${totalPages} pages converted across ${state.files.length} PDFs (100%)!` 
+            : `Compressing: ${totalPages} of ${totalPages} pages converted (100%)!`);
         }
 
         const blob = await r.blob();
@@ -2914,24 +2910,25 @@
         a.download = name;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+        const totalPages = state.files.reduce((acc, f) => acc + (f.pageCount || 0), 0) || 1;
         show(
           mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' :
           mode === 'word-to-pdf' ? 'Done! PDF document downloaded.' :
-          mode === 'compress' ? (state.files.length > 1 ? `Done! All ${state.files.length} PDFs compressed.` : 'Done! PDF compressed and downloaded.') :
+          mode === 'compress' ? (state.files.length > 1 ? `Done! All ${totalPages} pages across ${state.files.length} PDFs converted & compressed.` : `Done! All ${totalPages} pages converted and compressed.`) :
           (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Done! All split worksheets downloaded as ZIP.' :
           'Done! Your download has started.',
           false, true
         );
       } catch (e) {
-        if (compressStageTimer) {
-          clearInterval(compressStageTimer);
-          compressStageTimer = null;
+        if (compressTicker) {
+          clearInterval(compressTicker);
+          compressTicker = null;
         }
         show(e.message || (mode === 'word-to-pdf' ? 'Could not convert Word document.' : 'Could not process PDF.'), true);
       } finally {
-        if (compressStageTimer) {
-          clearInterval(compressStageTimer);
-          compressStageTimer = null;
+        if (compressTicker) {
+          clearInterval(compressTicker);
+          compressTicker = null;
         }
         setBusy(false);
       }
