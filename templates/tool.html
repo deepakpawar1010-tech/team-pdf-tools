@@ -1317,6 +1317,18 @@
       msg.className = 'message' + (error ? ' error' : '') + (success ? ' success' : '');
     }
 
+    async function readJsonResponse(response, context) {
+      const body = await response.text();
+      if (!body.trim()) {
+        throw new Error(`${context}: the server returned an empty response (${response.status}).`);
+      }
+      try {
+        return JSON.parse(body);
+      } catch {
+        throw new Error(`${context}: the server returned an unreadable response (${response.status}).`);
+      }
+    }
+
     function bytes(n) {
       return `${(n / 1024 / 1024).toFixed(n > 1024 * 1024 ? 1 : 2)} MB`;
     }
@@ -2879,21 +2891,42 @@
         }
 
         if (mode === 'compress') {
-          const job = await r.json();
+          const job = await readJsonResponse(r, 'Could not start compression');
           if (!job.job_id) throw new Error(job.error || 'Could not start compression.');
           if (compressTicker) {
             clearInterval(compressTicker);
             compressTicker = null;
           }
           let jobState = 'queued';
+          let statusRetries = 0;
           while (jobState === 'queued' || jobState === 'processing') {
             show(jobState === 'queued' ? 'Upload received. Starting compression…' : 'Compressing on the server… Large PDFs can take a few minutes.');
             await new Promise(resolve => setTimeout(resolve, 2000));
-            const statusResponse = await fetch(`/api/compress/status/${job.job_id}`);
-            const statusData = await statusResponse.json();
-            if (!statusResponse.ok) throw new Error(statusData.error || 'Could not check compression status.');
-            jobState = statusData.status;
-            if (jobState === 'failed') throw new Error(statusData.error || 'Compression failed.');
+            try {
+              const statusResponse = await fetch(`/api/compress/status/${job.job_id}`, { cache: 'no-store' });
+              if ([502, 503, 504].includes(statusResponse.status) && statusRetries < 6) {
+                statusRetries++;
+                show(`Server is waking up. Checking compression again (${statusRetries}/6)…`);
+                await new Promise(resolve => setTimeout(resolve, Math.min(8000, statusRetries * 1500)));
+                continue;
+              }
+              if (!statusResponse.ok) {
+                const errorData = await readJsonResponse(statusResponse, 'Could not check compression status');
+                throw new Error(errorData.error || `Could not check compression status (${statusResponse.status}).`);
+              }
+              const statusData = await readJsonResponse(statusResponse, 'Could not check compression status');
+              statusRetries = 0;
+              jobState = statusData.status;
+              if (jobState === 'failed') throw new Error(statusData.error || 'Compression failed.');
+            } catch (statusError) {
+              if (statusRetries < 6 && /empty response|unreadable response|Failed to fetch|NetworkError/i.test(statusError.message)) {
+                statusRetries++;
+                show(`Connection interrupted. Checking compression again (${statusRetries}/6)…`);
+                await new Promise(resolve => setTimeout(resolve, Math.min(8000, statusRetries * 1500)));
+                continue;
+              }
+              throw statusError;
+            }
           }
           window.location.assign(`/api/compress/download/${job.job_id}`);
           show('Compression complete. Your download is starting.', false, true);

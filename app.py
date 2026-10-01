@@ -14,6 +14,7 @@ import time
 import tempfile
 import threading
 import subprocess
+from functools import wraps
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 word_lock = threading.Lock()
 compress_jobs = {}
 compress_jobs_lock = threading.Lock()
+heavy_process_lock = threading.Lock()
+MAX_UPLOAD_BYTES = 1536 * 1024 * 1024  # 1.5 GiB request limit
+MAX_RENDER_PIXELS = 8_000_000
+MAX_DOCUMENT_PAGES = 600
 
 try:
     from pdf2docx import Converter
@@ -35,8 +40,22 @@ except ImportError:
     Converter = None
 
 app = Flask(__name__)
-# Allow large streaming uploads without Flask rejecting them
-app.config["MAX_CONTENT_LENGTH"] = None
+# Bound request size at 1.5 GiB. Werkzeug spools large multipart request bodies
+# to temporary storage, so this does not place the full upload in process RAM.
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
+
+def memory_guarded(view):
+    """Allow only one memory-heavy document operation per free web instance."""
+    @wraps(view)
+    def guarded(*args, **kwargs):
+        if not heavy_process_lock.acquire(blocking=False):
+            return jsonify({"error": "The server is processing another document. Please try again shortly."}), 429
+        try:
+            return view(*args, **kwargs)
+        finally:
+            heavy_process_lock.release()
+    return guarded
 
 
 @app.errorhandler(413)
@@ -126,6 +145,7 @@ def info():
 
 
 @app.post("/api/worksheet-info")
+@memory_guarded
 def worksheet_info():
     input_path = None
     try:
@@ -159,6 +179,7 @@ def worksheet_info():
 
 
 @app.post("/api/previews")
+@memory_guarded
 def previews():
     """Render lightweight page thumbnails for the browser UI.
 
@@ -247,14 +268,16 @@ def rasterize_pdf_to_limit(
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             temp_path = tmp.name
 
-        for _ in range(7):
+        for _ in range(5):
             source = fitz.open(input_path)
             raster_doc = fitz.open()
             try:
                 raster_doc.set_metadata(source.metadata)
-                scale = dpi / 72.0
                 for page in source:
                     rect = page.rect
+                    page_area = max(1.0, rect.width * rect.height)
+                    safe_dpi = min(dpi, 72.0 * (MAX_RENDER_PIXELS / page_area) ** 0.5)
+                    scale = safe_dpi / 72.0
                     pix = page.get_pixmap(
                         matrix=fitz.Matrix(scale, scale),
                         colorspace=fitz.csRGB,
@@ -313,6 +336,9 @@ def compress_single_pdf_optimized(
     doc = fitz.open(input_path)
     total_pages = len(doc)
     t_open = time.perf_counter() - t_open_start
+    if total_pages > MAX_DOCUMENT_PAGES:
+        doc.close()
+        raise ValueError(f"This PDF has more than the {MAX_DOCUMENT_PAGES}-page limit for this server.")
 
     # Very oversized scans usually need page rendering to meet the requested cap.
     # Skip the slower image-by-image pass and go directly to one budget-based render.
@@ -462,6 +488,8 @@ def compress_single_pdf_optimized(
         orig_w = b.get("width", 0)
         orig_h = b.get("height", 0)
         ext = b.get("ext", "").lower()
+        if orig_w * orig_h > MAX_RENDER_PIXELS:
+            return None
 
         max_w = max(1, int(round((pw / 72.0) * dpi_target)))
         max_h = max(1, int(round((ph / 72.0) * dpi_target)))
@@ -500,7 +528,8 @@ def compress_single_pdf_optimized(
             pass
         return None
 
-    workers = min(8, os.cpu_count() or 4)
+    # Keep only one decoded source image resident at a time on 512 MB instances.
+    workers = 1
     with ThreadPoolExecutor(max_workers=workers) as pool:
         opt_results = list(pool.map(process_candidate_image, extracted))
 
@@ -560,10 +589,12 @@ def compress_single_pdf_optimized(
 
 
 @app.post("/api/split")
+@memory_guarded
 def split_pdf():
     t_start = time.perf_counter()
     input_path = None
     output_path = None
+    temp_split_paths = []
     try:
         upload = request.files.get("file")
         valid_pdf(upload)
@@ -577,6 +608,9 @@ def split_pdf():
 
         doc = fitz.open(input_path)
         total_pages = len(doc)
+        if total_pages > MAX_DOCUMENT_PAGES:
+            doc.close()
+            raise ValueError(f"This PDF has more than the {MAX_DOCUMENT_PAGES}-page limit for this server.")
         t_open = time.perf_counter() - t_open_start
 
         selected_ranges = []
@@ -668,12 +702,19 @@ def split_pdf():
         with zipfile.ZipFile(output_path, "w", zipfile.ZIP_STORED) as zf:
             for number, (start, end) in enumerate(selected_ranges, start=1):
                 sub_doc = fitz.open()
-                sub_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
-                pdf_bytes = sub_doc.tobytes(garbage=0, deflate=False)
-                sub_doc.close()
+                try:
+                    sub_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as sub_tmp:
+                        sub_path = sub_tmp.name
+                    temp_split_paths.append(sub_path)
+                    sub_doc.save(sub_path, garbage=0, deflate=False)
+                finally:
+                    sub_doc.close()
                 suffix = f"page-{start}" if start == end else f"pages-{start}-{end}"
                 file_entry_name = output_name(upload.filename, f"{number:02d}_{suffix}")
-                zf.writestr(file_entry_name, pdf_bytes)
+                zf.write(sub_path, arcname=file_entry_name)
+                os.remove(sub_path)
+                temp_split_paths.remove(sub_path)
 
         t_proc = time.perf_counter() - t_proc_start
         doc.close()
@@ -716,6 +757,12 @@ def split_pdf():
         )
     except Exception as error:
         logger.exception("Split PDF failed: %s", error)
+        for path in temp_split_paths:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
         if input_path and os.path.exists(input_path):
             try:
                 os.remove(input_path)
@@ -730,6 +777,7 @@ def split_pdf():
 
 
 @app.post("/api/merge")
+@memory_guarded
 def merge_pdf():
     t_start = time.perf_counter()
     input_paths = []
@@ -752,6 +800,9 @@ def merge_pdf():
             total_input_bytes += os.path.getsize(tmp_path)
 
             sub_doc = fitz.open(tmp_path)
+            if len(out_doc) + len(sub_doc) > MAX_DOCUMENT_PAGES:
+                sub_doc.close()
+                raise ValueError(f"Merged PDFs cannot exceed {MAX_DOCUMENT_PAGES} pages on this server.")
             out_doc.insert_pdf(sub_doc)
             sub_doc.close()
         t_open_and_insert = time.perf_counter() - t_open_start
@@ -828,6 +879,7 @@ def merge_pdf():
 def compress_pdf():
     input_paths = []
     job_id = uuid.uuid4().hex
+    memory_lock_acquired = False
     try:
         uploads = request.files.getlist("files") or ([request.files.get("file")] if request.files.get("file") else [])
         if not uploads or not any(getattr(upload, "filename", None) for upload in uploads):
@@ -835,6 +887,10 @@ def compress_pdf():
         for upload in uploads:
             valid_pdf(upload)
         preset = request.form.get("quality", "balanced").strip().lower()
+
+        if not heavy_process_lock.acquire(blocking=False):
+            return jsonify({"error": "The server is processing another document. Please try again shortly."}), 429
+        memory_lock_acquired = True
 
         with compress_jobs_lock:
             if any(job["status"] in ("queued", "processing") for job in compress_jobs.values()):
@@ -854,6 +910,7 @@ def compress_pdf():
             compress_jobs[job_id]["input_paths"] = input_paths[:]
         threading.Thread(target=run_compression_job, args=(job_id, file_entries, preset),
                          daemon=True, name=f"compress-{job_id[:8]}").start()
+        memory_lock_acquired = False  # The background worker now owns the lock.
         return jsonify({"job_id": job_id, "status": "queued"}), 202
     except Exception as error:
         logger.exception("Could not start compression job: %s", error)
@@ -866,6 +923,8 @@ def compress_pdf():
         with compress_jobs_lock:
             if job_id in compress_jobs:
                 compress_jobs[job_id].update(status="failed", error=str(error))
+        if memory_lock_acquired:
+            heavy_process_lock.release()
         return jsonify({"error": str(error)}), 400
 
 
@@ -930,6 +989,7 @@ def run_compression_job(job_id, file_entries, preset):
                 os.remove(output_path)
             except OSError:
                 pass
+        heavy_process_lock.release()
 
 
 @app.get("/api/compress/status/<job_id>")
@@ -967,6 +1027,7 @@ def download_compressed_job(job_id):
     return response
 
 @app.post("/api/pdf-to-word")
+@memory_guarded
 def pdf_to_word():
     input_path = None
     output_path = None
@@ -1207,6 +1268,7 @@ def convert_docx_to_pdf_high_fidelity(input_docx: str, output_pdf: str):
 
 
 @app.post("/api/word-to-pdf")
+@memory_guarded
 def word_to_pdf():
     input_path = None
     output_path = None
@@ -1256,6 +1318,7 @@ def word_to_pdf():
 
 
 @app.post("/api/worksheet-info")
+@memory_guarded
 def worksheet_info_api():
     temp_files: list[str] = []
     try:
@@ -1323,6 +1386,7 @@ def worksheet_info_api():
 
 @app.post("/api/worksheet-splitter")
 @app.post("/api/oly-ete-splitter")
+@memory_guarded
 def worksheet_splitter_api():
     temp_files: list[str] = []
     try:
