@@ -314,6 +314,41 @@ def compress_single_pdf_optimized(
     total_pages = len(doc)
     t_open = time.perf_counter() - t_open_start
 
+    # Very oversized scans usually need page rendering to meet the requested cap.
+    # Skip the slower image-by-image pass and go directly to one budget-based render.
+    ceiling_bytes = int(max_ceiling_mb * 1024 * 1024)
+    if total_pages and input_size > ceiling_bytes * 1.5:
+        estimated_bytes_per_page = (dpi_target / 150.0) ** 2 * 250 * 1024 * (quality / 80.0)
+        target_bytes_per_page = ceiling_bytes / total_pages
+        dpi_scale = min(1.0, (target_bytes_per_page * 0.88 / estimated_bytes_per_page) ** 0.5)
+        render_dpi = max(40, min(dpi_target, int(dpi_target * dpi_scale)))
+        doc.close()
+        t_render_start = time.perf_counter()
+        raster_size = rasterize_pdf_to_limit(
+            input_path, output_path, ceiling_bytes, render_dpi, quality
+        )
+        t_render = time.perf_counter() - t_render_start
+        if not raster_size:
+            raise ValueError(
+                f"This PDF could not be compressed below {max_ceiling_mb:g} MB with the selected preset. "
+                "Choose a lower size preset or a smaller source PDF."
+            )
+        out_mb = raster_size / (1024 * 1024)
+        return {
+            "input_mb": input_mb,
+            "output_mb": out_mb,
+            "saved_pct": (1.0 - raster_size / input_size) * 100,
+            "total_time": time.perf_counter() - t_start,
+            "images_found": 0,
+            "images_opt": 0,
+            "attempts": 1,
+            "open_time": t_open,
+            "analysis_time": 0.0,
+            "opt_time": t_render,
+            "save_time": 0.0,
+            "total_pages": total_pages,
+        }
+
     # Fast path: Empty document
     if total_pages == 0:
         doc.save(output_path, garbage=0, deflate=False)
@@ -330,6 +365,7 @@ def compress_single_pdf_optimized(
             "analysis_time": 0.0,
             "opt_time": 0.0,
             "save_time": 0.0,
+            "total_pages": total_pages,
         }
 
     t_analysis_start = time.perf_counter()
@@ -403,6 +439,7 @@ def compress_single_pdf_optimized(
             "analysis_time": t_analysis,
             "opt_time": 0.0,
             "save_time": t_save,
+            "total_pages": total_pages,
         }
 
     # 3. Extract candidate image streams
@@ -518,6 +555,7 @@ def compress_single_pdf_optimized(
         "analysis_time": t_analysis,
         "opt_time": t_opt,
         "save_time": t_save,
+        "total_pages": total_pages,
     }
 
 
@@ -625,7 +663,9 @@ def split_pdf():
         with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as zip_tmp:
             output_path = zip_tmp.name
 
-        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Each entry is already a compressed PDF. Store it directly to avoid
+        # spending CPU trying to DEFLATE already-compressed streams a second time.
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_STORED) as zf:
             for number, (start, end) in enumerate(selected_ranges, start=1):
                 sub_doc = fitz.open()
                 sub_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)

@@ -2895,11 +2895,9 @@
             jobState = statusData.status;
             if (jobState === 'failed') throw new Error(statusData.error || 'Compression failed.');
           }
-          r = await fetch(`/api/compress/download/${job.job_id}`);
-          if (!r.ok) {
-            const data = await r.json().catch(() => ({}));
-            throw new Error(data.error || 'Compressed file could not be downloaded.');
-          }
+          window.location.assign(`/api/compress/download/${job.job_id}`);
+          show('Compression complete. Your download is starting.', false, true);
+          return;
         }
 
         if (compressTicker) {
