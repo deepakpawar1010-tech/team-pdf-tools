@@ -88,17 +88,9 @@ def healthz():
     return jsonify({"status": "healthy", "service": "team-pdf-tools"}), 200
 
 
-@app.get("/katex-viewer")
-@app.get("/katex")
-def katex_page():
-    return render_template("katex.html")
-
-
 @app.get("/<tool>")
 def tool_page(tool: str):
-    if tool in {"katex-viewer", "katex"}:
-        return render_template("katex.html")
-    if tool in {"merge", "split", "compress", "pdf-to-word", "word-to-pdf", "worksheet-splitter", "oly-ete-splitter", "markdown-to-pdf", "md-to-pdf"}:
+    if tool in {"merge", "split", "compress", "pdf-to-word", "word-to-pdf", "worksheet-splitter", "oly-ete-splitter"}:
         return render_template("tool.html", tool=tool)
     if tool in COMING_SOON:
         return render_template("coming_soon.html", tool=tool, info=COMING_SOON[tool])
@@ -1011,73 +1003,6 @@ def worksheet_splitter_api():
                 except Exception:
                     pass
 
-
-@app.post("/api/markdown-to-pdf")
-@app.post("/api/md-to-pdf")
-def markdown_to_pdf_api():
-    try:
-        markdown_text = ""
-        filename = "document.md"
-
-        upload = request.files.get("file")
-        if upload and upload.filename:
-            filename = upload.filename
-            raw_bytes = upload.read()
-            if filename.lower().endswith(".pdf") or upload.mimetype == "application/pdf":
-                from md_to_pdf import extract_latex_text_from_pdf
-                markdown_text = extract_latex_text_from_pdf(raw_bytes)
-            else:
-                markdown_text = raw_bytes.decode("utf-8", errors="replace")
-        elif "markdown_text" in request.form and request.form["markdown_text"].strip():
-            markdown_text = request.form["markdown_text"]
-        else:
-            raise ValueError("Please provide a PDF or Markdown file (.pdf, .md, .txt, .tex) or paste Markdown content.")
-
-        preset = request.form.get("preset", "exam").lower()
-        paper_size = request.form.get("paper_size", "A4").upper()
-        render_math = request.form.get("render_math", "true").lower() == "true"
-        font_family = request.form.get("font_family", "sans").lower()
-
-        from md_to_pdf import render_markdown_to_pdf
-        pdf_bytes = render_markdown_to_pdf(
-            markdown_text=markdown_text,
-            preset=preset,
-            paper_size=paper_size,
-            render_math=render_math,
-            font_family=font_family,
-        )
-
-        dl_name = output_name(filename, "rendered") if filename != "document.md" else "rendered-document.pdf"
-        return send_file(
-            io.BytesIO(pdf_bytes),
-            as_attachment=True,
-            download_name=dl_name,
-            mimetype="application/pdf",
-        )
-    except Exception as error:
-        logger.exception("Markdown to PDF conversion failed: %s", error)
-        return jsonify({"error": str(error)}), 400
-
-
-@app.post("/api/extract-markdown-from-pdf")
-def extract_markdown_from_pdf_api():
-    try:
-        upload = request.files.get("file")
-        if not upload or not upload.filename:
-            raise ValueError("No PDF file provided.")
-        raw_bytes = upload.read()
-        from md_to_pdf import extract_latex_text_from_pdf
-        text = extract_latex_text_from_pdf(raw_bytes)
-        import fitz
-        doc = fitz.open(stream=raw_bytes, filetype="pdf")
-        return jsonify({
-            "text": text,
-            "page_count": len(doc),
-            "filename": upload.filename,
-        })
-    except Exception as error:
-        logger.exception("PDF text extraction failed: %s", error)
-        return jsonify({"error": str(error)}), 400
 
 
 if __name__ == "__main__":

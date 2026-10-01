@@ -333,11 +333,6 @@
     .theme-worksheet { --tile-accent: #9333ea; }
     .theme-worksheet .tile-icon { background: #faf5ff; color: #9333ea; }
 
-    .theme-markdown { --tile-accent: #4f46e5; }
-    .theme-markdown .tile-icon { background: #eef2ff; color: #4f46e5; }
-
-    .theme-katex { --tile-accent: #7c3aed; }
-    .theme-katex .tile-icon { background: #f5f3ff; color: #7c3aed; }
 
     .theme-pdf-md { --tile-accent: #d97706; }
     .theme-pdf-md .tile-icon { background: #fffbeb; color: #d97706; }
@@ -501,8 +496,6 @@
       <a href="/pdf-to-word">PDF to Word</a>
       <a href="/word-to-pdf">Word to PDF</a>
       <a href="/worksheet-splitter">Work-sheet Splitter <span class="new-badge">New</span></a>
-      <a href="/markdown-to-pdf">Markdown to PDF <span class="new-badge" style="color: #4f46e5; border-color: #e0e7ff; background: #eef2ff;">New</span></a>
-      <a href="/katex-viewer">KaTeX Viewer <span class="new-badge" style="color: #7c3aed; border-color: #ddd6fe; background: #f5f3ff;">New</span></a>
       <a href="/pdf-to-markdown">PDF to Markdown <span class="soon-badge">Soon</span></a>
       <a href="/pdf-to-excel">PDF to Excel <span class="soon-badge">Soon</span></a>
     </nav>
@@ -524,7 +517,7 @@
       <div class="search-filter-wrap">
         <div class="search-box">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input id="toolSearch" class="search-input" type="text" placeholder="Search PDF tools (e.g. split, word, latex, cbse)..." autocomplete="off">
+          <input id="toolSearch" class="search-input" type="text" placeholder="Search PDF tools (e.g. split, word, compress, cbse)..." autocomplete="off">
         </div>
       </div>
     </section>
@@ -532,16 +525,16 @@
     <!-- Quick Category Filter Pills -->
     <div class="filter-pills">
       <button class="pill-btn active" data-category="all" type="button">
-        All Tools <span class="pill-count">8</span>
+        All Tools <span class="pill-count">6</span>
       </button>
       <button class="pill-btn" data-category="organize" type="button">
         Organize &amp; Optimize <span class="pill-count">3</span>
       </button>
       <button class="pill-btn" data-category="convert" type="button">
-        Convert Documents <span class="pill-count">4</span>
+        Convert Documents <span class="pill-count">2</span>
       </button>
       <button class="pill-btn" data-category="education" type="button">
-        Exams &amp; Math <span class="pill-count">3</span>
+        Exams &amp; Worksheets <span class="pill-count">1</span>
       </button>
       <button class="pill-btn" data-category="upcoming" type="button">
         Upcoming <span class="pill-count">2</span>
@@ -653,37 +646,6 @@
         </div>
       </a>
 
-      <!-- 7. Markdown to PDF -->
-      <a class="tool-tile theme-markdown" data-category="education convert" data-keywords="markdown to pdf latex math katex exam question paper formula" href="/markdown-to-pdf">
-        <div class="tile-header">
-          <div class="tile-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><path stroke-linecap="round" stroke-linejoin="round" d="M9 9h1"/></svg>
-          </div>
-          <span class="new-badge" style="color: #4f46e5; border-color: #e0e7ff; background: #eef2ff;">New</span>
-        </div>
-        <h2>Markdown to PDF</h2>
-        <p>Render Markdown or PDF documents containing raw LaTeX formulas into publication-quality vector PDFs.</p>
-        <div class="tile-footer">
-          <span class="tile-tag">Markdown &amp; PDF &bull; KaTeX</span>
-          <span>Open Tool &rarr;</span>
-        </div>
-      </a>
-
-      <!-- 8. KaTeX Viewer -->
-      <a class="tool-tile theme-katex" data-category="education convert" data-keywords="katex viewer latex math formula equation calculus physics chemistry matrix symbols preview render live editor" href="/katex-viewer">
-        <div class="tile-header">
-          <div class="tile-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 7l8 10 8-10M9 17h6"/></svg>
-          </div>
-          <span class="new-badge" style="color: #7c3aed; border-color: #ddd6fe; background: #f5f3ff;">New</span>
-        </div>
-        <h2>KaTeX Viewer</h2>
-        <p>Real-time LaTeX formula viewer &amp; math studio. Live preview, formula palette, MathML/SVG copy, and instant PNG/PDF export.</p>
-        <div class="tile-footer">
-          <span class="tile-tag">Live Studio &bull; KaTeX</span>
-          <span>Open Studio &rarr;</span>
-        </div>
-      </a>
 
       <!-- 8. PDF to Markdown (Upcoming) -->
       <a class="tool-tile theme-pdf-md" data-category="upcoming" data-keywords="pdf to markdown extract headings text llm" href="/pdf-to-markdown">
