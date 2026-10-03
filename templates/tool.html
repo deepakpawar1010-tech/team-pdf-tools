@@ -866,6 +866,27 @@
       background: #f0fdf4;
       border: 1px solid #bbf7d0;
     }
+    .open-folder-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 10px;
+      vertical-align: middle;
+      background: #0284c7;
+      color: #ffffff;
+      border: none;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+      transition: background 0.15s ease, transform 0.1s ease;
+    }
+    .open-folder-btn:hover {
+      background: #0369a1;
+      transform: translateY(-1px);
+    }
 
     .hidden { display: none !important; }
 
@@ -1310,10 +1331,60 @@
       ranges: [{ from: 1, to: 1 }]
     };
 
-    function show(text, error = false, success = false) {
+    function show(text, error = false, success = false, isHtml = false) {
       const msg = $('message');
-      msg.textContent = text;
+      if (isHtml) {
+        msg.innerHTML = text;
+      } else {
+        msg.textContent = text;
+      }
       msg.className = 'message' + (error ? ' error' : '') + (success ? ' success' : '');
+    }
+
+    window.openDownloadsFolder = async function(path) {
+      try {
+        await fetch('/api/open-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: path || '' })
+        });
+      } catch (e) {
+        console.error('Could not open downloads folder:', e);
+      }
+    };
+
+    async function deliverFile(blob, filename, serverSavedPath = null) {
+      let finalPath = serverSavedPath;
+      if (!finalPath) {
+        try {
+          const fd = new FormData();
+          fd.append('file', blob, filename);
+          fd.append('filename', filename);
+          const res = await fetch('/api/save-to-downloads', { method: 'POST', body: fd });
+          if (res.ok) {
+            const d = await res.json();
+            if (d.path) finalPath = d.path;
+          }
+        } catch (e) {
+          console.warn('Direct save to downloads fallback:', e);
+        }
+      }
+
+      // Also trigger anchor click for normal web browsers
+      try {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try { document.body.removeChild(a); } catch (_) {}
+          URL.revokeObjectURL(url);
+        }, 1500);
+      } catch (e) {}
+
+      return finalPath;
     }
 
     function bytes(n) {
@@ -2800,12 +2871,10 @@
 
           const pdfBytes = await newDoc.save();
           const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-          const url = URL.createObjectURL(blob), a = document.createElement('a');
-          a.href = url;
-          a.download = file.name.replace(/\.pdf$/i, '') + '-selected-pages.pdf';
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-          show('Done! Your selected pages have been downloaded.', false, true);
+          const outName = file.name.replace(/\.pdf$/i, '') + '-selected-pages.pdf';
+          const savedPath = await deliverFile(blob, outName);
+          const openBtn = `<button type="button" class="open-folder-btn" onclick="openDownloadsFolder('${(savedPath || '').replace(/\\/g, '\\\\')}')">📁 Open Folder</button>`;
+          show(`Done! Saved to Downloads as <strong>${escapeHtml(outName)}</strong> ${openBtn}`, false, true, true);
           setBusy(false);
           return;
         } catch (splitErr) {
@@ -2922,21 +2991,12 @@
         const m = cd && cd.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
         if (m) name = decodeURIComponent(m[1]);
 
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = name;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        const totalPages = state.files.reduce((acc, f) => acc + (f.pageCount || 0), 0) || 1;
-        show(
-          mode === 'pdf-to-word' ? 'Done! Word (.docx) document downloaded.' :
-          mode === 'word-to-pdf' ? 'Done! PDF document downloaded.' :
-          mode === 'compress' ? (state.files.length > 1 ? `Done! All ${totalPages} pages across ${state.files.length} PDFs converted & compressed.` : `Done! All ${totalPages} pages converted and compressed.`) :
-          (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') ? 'Done! All split worksheets downloaded as ZIP.' :
-          'Done! Your download has started.',
-          false, true
-        );
+        const serverSavedPath = r.headers.get('X-Saved-Path');
+        const serverSavedName = r.headers.get('X-Saved-Filename') || name;
+        const finalPath = await deliverFile(blob, serverSavedName, serverSavedPath);
+
+        const openBtn = `<button type="button" class="open-folder-btn" onclick="openDownloadsFolder('${(finalPath || '').replace(/\\/g, '\\\\')}')">📁 Open Folder</button>`;
+        show(`Done! Saved to Downloads as <strong>${escapeHtml(serverSavedName)}</strong> ${openBtn}`, false, true, true);
       } catch (e) {
         if (compressTicker) {
           clearInterval(compressTicker);

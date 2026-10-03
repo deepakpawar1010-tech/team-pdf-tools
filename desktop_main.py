@@ -88,6 +88,7 @@ def main():
     launched_native = False
     try:
         import webview
+        webview.settings['ALLOW_DOWNLOADS'] = True
         icon_path = get_icon_path()
         window = webview.create_window(
             title="Team PDF Tools",

@@ -72,6 +72,85 @@ def output_docx_name(filename: str, suffix: str = "converted") -> str:
     return f"{safe_stem}-{suffix}.docx"
 
 
+def get_downloads_folder() -> str:
+    """Resolve Windows user's true Shell Downloads directory with fallback."""
+    if sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders",
+            ) as key:
+                dl = winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")[0]
+                if os.path.isdir(dl):
+                    return dl
+        except Exception:
+            pass
+    fallback = os.path.join(os.path.expanduser("~"), "Downloads")
+    os.makedirs(fallback, exist_ok=True)
+    return fallback
+
+
+def get_unique_filename(directory: str, filename: str) -> str:
+    """Prevent overwriting existing files in Downloads by appending (1), (2), etc."""
+    base, ext = os.path.splitext(filename)
+    candidate = os.path.join(directory, filename)
+    counter = 1
+    while os.path.exists(candidate):
+        candidate = os.path.join(directory, f"{base} ({counter}){ext}")
+        counter += 1
+    return candidate
+
+
+def smart_send_file(file_path_or_buffer, download_name: str, mimetype: str = "application/pdf"):
+    """
+    Delivers file to client via HTTP while also guaranteeing a direct save to the local Downloads
+    folder when running on the user's desktop/localhost.
+    """
+    saved_path = None
+    saved_filename = None
+    saved_folder = None
+
+    is_local = request.remote_addr in ("127.0.0.1", "localhost", "::1", "testclient")
+    auto_save = request.form.get("save_to_downloads", "true").lower() == "true" or request.headers.get("X-Save-To-Downloads") == "true"
+
+    if is_local and auto_save:
+        try:
+            downloads_dir = get_downloads_folder()
+            dest_path = get_unique_filename(downloads_dir, download_name)
+            if isinstance(file_path_or_buffer, str) and os.path.exists(file_path_or_buffer):
+                shutil.copy2(file_path_or_buffer, dest_path)
+            elif hasattr(file_path_or_buffer, "getvalue"):
+                with open(dest_path, "wb") as f:
+                    f.write(file_path_or_buffer.getvalue())
+            elif hasattr(file_path_or_buffer, "read"):
+                file_path_or_buffer.seek(0)
+                with open(dest_path, "wb") as f:
+                    shutil.copyfileobj(file_path_or_buffer, f)
+                file_path_or_buffer.seek(0)
+
+            if os.path.exists(dest_path):
+                saved_path = dest_path
+                saved_filename = os.path.basename(dest_path)
+                saved_folder = downloads_dir
+                logger.info(f"[DOWNLOAD SAVED] Direct saved to Downloads: {dest_path}")
+        except Exception as e:
+            logger.warning(f"Could not auto-save to downloads folder: {e}")
+
+    resp = send_file(
+        file_path_or_buffer,
+        as_attachment=True,
+        download_name=download_name,
+        mimetype=mimetype,
+    )
+    if saved_path:
+        resp.headers["X-Saved-Path"] = saved_path
+        resp.headers["X-Saved-Filename"] = saved_filename
+        resp.headers["X-Saved-Folder"] = saved_folder
+        resp.headers["Access-Control-Expose-Headers"] = "X-Saved-Path, X-Saved-Filename, X-Saved-Folder, Content-Disposition"
+    return resp
+
+
 @app.get("/")
 def home():
     return render_template("home.html")
@@ -97,6 +176,48 @@ COMING_SOON = {
 @app.get("/api/health")
 def healthz():
     return jsonify({"status": "healthy", "service": "team-pdf-tools"}), 200
+
+
+@app.post("/api/open-folder")
+def open_folder():
+    data = request.get_json(silent=True) or {}
+    path = data.get("path")
+    try:
+        if path and os.path.exists(path):
+            if sys.platform == "win32":
+                subprocess.Popen(f'explorer /select,"{os.path.normpath(path)}"')
+            else:
+                os.system(f'open "{os.path.dirname(path)}"')
+            return jsonify({"status": "ok", "opened": path})
+
+        folder = get_downloads_folder()
+        if sys.platform == "win32":
+            os.startfile(folder)
+        else:
+            os.system(f'open "{folder}"')
+        return jsonify({"status": "ok", "opened": folder})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/save-to-downloads")
+def save_to_downloads():
+    file = request.files.get("file")
+    filename = request.form.get("filename") or "document.pdf"
+    if not file:
+        return jsonify({"error": "No file provided"}), 400
+    try:
+        downloads_dir = get_downloads_folder()
+        dest = get_unique_filename(downloads_dir, filename)
+        file.save(dest)
+        return jsonify({
+            "status": "ok",
+            "path": dest,
+            "filename": os.path.basename(dest),
+            "folder": downloads_dir
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.get("/<tool>")
@@ -577,9 +698,8 @@ def split_pdf():
                     pass
                 return response
 
-            return send_file(
+            return smart_send_file(
                 output_path,
-                as_attachment=True,
                 download_name=output_name(upload.filename, "selected-pages"),
                 mimetype="application/pdf",
             )
@@ -631,9 +751,8 @@ def split_pdf():
                 pass
             return response
 
-        return send_file(
+        return smart_send_file(
             output_path,
-            as_attachment=True,
             download_name=output_name(upload.filename, "split-files").replace(".pdf", ".zip"),
             mimetype="application/zip",
         )
@@ -725,9 +844,8 @@ def merge_pdf():
                 pass
             return response
 
-        return send_file(
+        return smart_send_file(
             output_path,
-            as_attachment=True,
             download_name="merged.pdf",
             mimetype="application/pdf",
         )
@@ -822,9 +940,8 @@ def compress_pdf():
                     pass
                 return response
 
-            return send_file(
+            return smart_send_file(
                 output_path,
-                as_attachment=True,
                 download_name=output_name(upload.filename, "compressed"),
                 mimetype="application/pdf",
             )
@@ -910,9 +1027,8 @@ def compress_pdf():
                 pass
             return response
 
-        return send_file(
+        return smart_send_file(
             output_path,
-            as_attachment=True,
             download_name="compressed-pdfs-bundle.zip",
             mimetype="application/zip",
         )
@@ -1018,9 +1134,8 @@ def pdf_to_word():
                 pass
             return response
 
-        return send_file(
+        return smart_send_file(
             output_path,
-            as_attachment=True,
             download_name=output_docx_name(upload.filename, "converted"),
             mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
@@ -1206,9 +1321,8 @@ def word_to_pdf():
                 pass
             return response
 
-        return send_file(
+        return smart_send_file(
             output_path,
-            as_attachment=True,
             download_name=output_name(upload.filename, "converted"),
             mimetype="application/pdf"
         )
@@ -1357,9 +1471,8 @@ def worksheet_splitter_api():
         else:
             dl_name = f"split_{suffix}_bundle.zip"
 
-        return send_file(
+        return smart_send_file(
             zip_buf,
-            as_attachment=True,
             download_name=dl_name,
             mimetype="application/zip"
         )
