@@ -41,3 +41,8 @@ env/
 *.swo
 .DS_Store
 Thumbs.db
+
+# Build artifacts & logs
+dist_installer/
+*.spec
+*.log

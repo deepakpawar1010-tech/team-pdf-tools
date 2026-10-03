@@ -32,7 +32,14 @@ try:
 except ImportError:
     Converter = None
 
-app = Flask(__name__)
+if getattr(sys, "frozen", False):
+    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    template_folder = os.path.join(base_dir, "templates")
+    static_folder = os.path.join(base_dir, "static") if os.path.exists(os.path.join(base_dir, "static")) else None
+    app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
+else:
+    app = Flask(__name__)
+
 # Configure 1.5 GB upload limit for large PDF processing
 MAX_UPLOAD_SIZE_BYTES = int(1.5 * 1024 * 1024 * 1024)  # 1.5 GB
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE_BYTES
