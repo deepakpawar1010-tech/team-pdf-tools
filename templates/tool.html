@@ -945,7 +945,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 0 1-.88-7.903A5 5 0 1 1 15.9 6L16 6a5 5 0 0 1 1 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
         </div>
         <strong>{% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter', 'compress'] %}Drop your PDF files here{% elif tool=='pdf-to-word' %}Drop your PDF file here to convert to Word{% elif tool=='word-to-pdf' %}Drop your Word document (.docx) here to convert to PDF{% else %}Drop your PDF file here{% endif %}</strong>
-        <span>or click to browse files from your computer</span>
+        <span>or click to browse files from your computer (supports documents up to 1.5 GB)</span>
         <div class="browse-btn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14"/></svg>
           Choose {% if tool in ['merge', 'worksheet-splitter', 'oly-ete-splitter', 'compress'] %}PDF Files{% elif tool=='word-to-pdf' %}Word Document{% else %}File{% endif %}
@@ -956,15 +956,15 @@
 
       <div id="empty" class="empty">
         <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z"/></svg>
-        <h2>{% if tool=='merge' %}Add PDF files to merge{% elif tool=='compress' %}Add PDF files to compress{% elif tool=='split' %}Add a PDF to split{% elif tool=='pdf-to-word' %}Add a PDF to convert to Word{% elif tool=='word-to-pdf' %}Add a Word document to convert to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Add a PDF to split into worksheets{% else %}Add a PDF to compress{% endif %}</h2>
-        <p>Private &amp; secure — files are processed in memory and never stored.</p>
+        <h2>{% if tool=='merge' %}Add PDF files to merge (up to 1.5 GB){% elif tool=='compress' %}Add PDF files to compress (up to 1.5 GB){% elif tool=='split' %}Add a PDF to split (up to 1.5 GB){% elif tool=='pdf-to-word' %}Add a PDF to convert to Word{% elif tool=='word-to-pdf' %}Add a Word document to convert to PDF{% elif tool in ['worksheet-splitter', 'oly-ete-splitter'] %}Add a PDF to split into worksheets{% else %}Add a PDF to compress{% endif %}</h2>
+        <p>Private &amp; secure — files are processed locally on your machine with high speed.</p>
       </div>
 
       <div id="mergeArea" class="hidden">
         <div class="section-title">
           <div>
             <h2>Document Queue (<span id="mergeFileCount">0</span>)</h2>
-            <span class="hint">Drag cards to reorder files before merging</span>
+            <span class="hint">Drag cards to reorder files before merging &bull; Supports up to 1.5 GB</span>
           </div>
           <div style="display: flex; gap: 10px; align-items: center;">
             <button id="clearAllMergeFiles" class="small-btn" type="button" style="color: var(--text-muted); background: white; border: 1px solid var(--border); padding: 8px 14px; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;">Clear All</button>
@@ -1709,9 +1709,14 @@
 
             let doc = null;
             let page = null;
-            try {
-              const buffer = await file.arrayBuffer();
-              doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+              if (file.size > 35 * 1024 * 1024) {
+                // Stream large files (up to 1.5 GB) on-demand via Blob URL without buffering in JS heap
+                const blobUrl = URL.createObjectURL(file);
+                doc = await pdfjsLib.getDocument(blobUrl).promise;
+              } else {
+                const buffer = await file.arrayBuffer();
+                doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+              }
               const total = doc.numPages;
 
               page = await doc.getPage(1);
@@ -2463,6 +2468,14 @@
         filesInput.value = '';
         return show(`"${tooLarge.name}" exceeds the 1.5 GB limit (${bytes(tooLarge.size)}). Please choose files under 1.5 GB.`, true);
       }
+      if (mode === 'merge') {
+        const currentTotal = state.files.reduce((s, f) => s + f.size, 0);
+        const addedTotal = selected.reduce((s, f) => s + f.size, 0);
+        if (currentTotal + addedTotal > MAX_FILE_SIZE_BYTES) {
+          filesInput.value = '';
+          return show(`Total merge size cannot exceed 1.5 GB (selected: ${bytes(currentTotal + addedTotal)}). Please select fewer or smaller files.`, true);
+        }
+      }
       if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter' || mode === 'compress') {
         const existingKeys = new Set(state.files.map(f => f.name + '_' + f.size));
         selected.forEach(f => {
@@ -2490,6 +2503,13 @@
         const tooLarge = selected.find(f => f.size > MAX_FILE_SIZE_BYTES);
         if (tooLarge) {
           return show(`"${tooLarge.name}" exceeds the 1.5 GB limit (${bytes(tooLarge.size)}). Please choose files under 1.5 GB.`, true);
+        }
+        if (mode === 'merge') {
+          const currentTotal = state.files.reduce((s, f) => s + f.size, 0);
+          const addedTotal = selected.reduce((s, f) => s + f.size, 0);
+          if (currentTotal + addedTotal > MAX_FILE_SIZE_BYTES) {
+            return show(`Total merge size cannot exceed 1.5 GB (selected: ${bytes(currentTotal + addedTotal)}). Please select fewer or smaller files.`, true);
+          }
         }
         if (mode === 'compress' || mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
           const existingKeys = new Set(state.files.map(f => f.name + '_' + f.size));
@@ -2551,6 +2571,14 @@
       const tooLarge = allDropped.find(f => f.size > MAX_FILE_SIZE_BYTES);
       if (tooLarge) {
         return show(`"${tooLarge.name}" exceeds the 1.5 GB limit (${bytes(tooLarge.size)}). Please choose files under 1.5 GB.`, true);
+      }
+      if (mode === 'merge') {
+        const droppedPdfs = allDropped.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+        const currentTotal = state.files.reduce((s, f) => s + f.size, 0);
+        const addedTotal = droppedPdfs.reduce((s, f) => s + f.size, 0);
+        if (currentTotal + addedTotal > MAX_FILE_SIZE_BYTES) {
+          return show(`Total merge size cannot exceed 1.5 GB (dropped: ${bytes(currentTotal + addedTotal)}). Please select fewer or smaller files.`, true);
+        }
       }
       if (mode === 'word-to-pdf') {
         state.files = allDropped.filter(f =>
@@ -2931,11 +2959,14 @@
         }
       } else if (mode === 'split') {
         const splitFile = state.files[0];
-        if (splitFile && splitFile.size > 30 * 1024 * 1024) {
-          show('Processing large PDF (streaming directly to disk)…');
+        if (splitFile && splitFile.size > 25 * 1024 * 1024) {
+          show(`Processing large document (${bytes(splitFile.size)}) — streaming directly on local machine…`);
         } else {
           show('Splitting PDF pages…');
         }
+      } else if (mode === 'merge') {
+        const totalBytes = state.files.reduce((acc, f) => acc + (f.size || 0), 0);
+        show(`Merging ${state.files.length} PDFs (${bytes(totalBytes)}) directly on local machine…`);
       } else {
         show('Processing PDF…');
       }
