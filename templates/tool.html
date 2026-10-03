@@ -987,7 +987,7 @@
         <div id="compressFilesContainer" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;"></div>
 
         <p class="hint" style="line-height: 1.6; margin-bottom: 20px;">
-          Choose a balance between file size and page clarity. For multiple files, all PDFs are compressed in batch and packaged into a ZIP archive.
+          Choose a balance between file size and page clarity. Supports large documents up to 1.5 GB. For multiple files, all PDFs are compressed in batch and packaged into a ZIP archive.
         </p>
       </div>
 
@@ -1317,8 +1317,13 @@
     }
 
     function bytes(n) {
+      if (n >= 1024 * 1024 * 1024) {
+        return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+      }
       return `${(n / 1024 / 1024).toFixed(n > 1024 * 1024 ? 1 : 2)} MB`;
     }
+
+    const MAX_FILE_SIZE_BYTES = 1.5 * 1024 * 1024 * 1024; // 1.5 GB limit
 
     function escapeHtml(s) {
       const d = document.createElement('div');
@@ -2382,6 +2387,11 @@
 
     filesInput.addEventListener('change', async () => {
       const selected = [...filesInput.files];
+      const tooLarge = selected.find(f => f.size > MAX_FILE_SIZE_BYTES);
+      if (tooLarge) {
+        filesInput.value = '';
+        return show(`"${tooLarge.name}" exceeds the 1.5 GB limit (${bytes(tooLarge.size)}). Please choose files under 1.5 GB.`, true);
+      }
       if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter' || mode === 'compress') {
         const existingKeys = new Set(state.files.map(f => f.name + '_' + f.size));
         selected.forEach(f => {
@@ -2406,6 +2416,10 @@
         const selected = [...extraFilesInput.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
         extraFilesInput.value = '';
         if (!selected.length) return;
+        const tooLarge = selected.find(f => f.size > MAX_FILE_SIZE_BYTES);
+        if (tooLarge) {
+          return show(`"${tooLarge.name}" exceeds the 1.5 GB limit (${bytes(tooLarge.size)}). Please choose files under 1.5 GB.`, true);
+        }
         if (mode === 'compress' || mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
           const existingKeys = new Set(state.files.map(f => f.name + '_' + f.size));
           selected.forEach(f => {
@@ -2462,15 +2476,20 @@
     }));
 
     $('drop').addEventListener('drop', ev => {
+      const allDropped = [...ev.dataTransfer.files];
+      const tooLarge = allDropped.find(f => f.size > MAX_FILE_SIZE_BYTES);
+      if (tooLarge) {
+        return show(`"${tooLarge.name}" exceeds the 1.5 GB limit (${bytes(tooLarge.size)}). Please choose files under 1.5 GB.`, true);
+      }
       if (mode === 'word-to-pdf') {
-        state.files = [...ev.dataTransfer.files].filter(f =>
+        state.files = allDropped.filter(f =>
           f.name.toLowerCase().endsWith('.docx') ||
           f.name.toLowerCase().endsWith('.doc') ||
           f.type.includes('wordprocessingml') ||
           f.type.includes('msword')
         );
       } else if (mode === 'worksheet-splitter' || mode === 'oly-ete-splitter' || mode === 'compress') {
-        const dropped = [...ev.dataTransfer.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+        const dropped = allDropped.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
         const existingKeys = new Set(state.files.map(f => f.name + '_' + f.size));
         dropped.forEach(f => {
           if (!existingKeys.has(f.name + '_' + f.size)) {
@@ -2478,10 +2497,10 @@
           }
         });
       } else if (mode === 'merge') {
-        const dropped = [...ev.dataTransfer.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+        const dropped = allDropped.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
         dropped.forEach(f => state.files.push(f));
       } else {
-        state.files = [...ev.dataTransfer.files].filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+        state.files = allDropped.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
       }
       updateAreas();
       if (state.files.length) loadPreviews();
@@ -2803,10 +2822,10 @@
           ? `Compressing: 0 of ${totalPages} pages converted across ${state.files.length} PDFs (0%)…` 
           : `Compressing: 0 of ${totalPages} pages converted (0%)…`);
 
-        // Dynamic page conversion ticker matching server compression speed
+        // Dynamic page conversion ticker matching server compression speed (scales up to 1.5 GB)
         const totalBytes = state.files.reduce((acc, f) => acc + (f.size || 0), 0);
-        const estSec = Math.max(1.8, Math.min(22, (totalBytes / (12 * 1024 * 1024)) + (totalPages * 0.07)));
-        const intervalMs = Math.max(30, Math.min(220, Math.round((estSec * 1000) / totalPages)));
+        const estSec = Math.max(2.0, Math.min(180, (totalBytes / (14 * 1024 * 1024)) + (totalPages * 0.08)));
+        const intervalMs = Math.max(30, Math.min(450, Math.round((estSec * 1000) / totalPages)));
 
         compressTicker = setInterval(() => {
           if (converted < totalPages - 1) {

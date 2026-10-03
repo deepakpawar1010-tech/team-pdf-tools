@@ -33,13 +33,14 @@ except ImportError:
     Converter = None
 
 app = Flask(__name__)
-# Allow large streaming uploads without Flask rejecting them
-app.config["MAX_CONTENT_LENGTH"] = None
+# Configure 1.5 GB upload limit for large PDF processing
+MAX_UPLOAD_SIZE_BYTES = int(1.5 * 1024 * 1024 * 1024)  # 1.5 GB
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE_BYTES
 
 
 @app.errorhandler(413)
 def handle_too_large(e):
-    return jsonify({"error": "File exceeds upload limit (413 Request Entity Too Large)."}), 413
+    return jsonify({"error": "File exceeds the 1.5 GB upload limit (413 Request Entity Too Large)."}), 413
 
 
 def valid_pdf(upload):
