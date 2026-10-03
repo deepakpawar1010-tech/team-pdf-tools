@@ -1709,6 +1709,7 @@
 
             let doc = null;
             let page = null;
+            try {
               if (file.size > 35 * 1024 * 1024) {
                 // Stream large files (up to 1.5 GB) on-demand via Blob URL without buffering in JS heap
                 const blobUrl = URL.createObjectURL(file);
