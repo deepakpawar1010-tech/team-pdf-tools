@@ -41,14 +41,14 @@ if getattr(sys, "frozen", False):
 else:
     app = Flask(__name__)
 
-# Configure 1.5 GB upload limit for large PDF processing
-MAX_UPLOAD_SIZE_BYTES = int(1.5 * 1024 * 1024 * 1024)  # 1.5 GB
+# Configure 2.5 GB upload limit for large PDF processing
+MAX_UPLOAD_SIZE_BYTES = int(2.5 * 1024 * 1024 * 1024)  # 2.5 GB
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE_BYTES
 
 
 @app.errorhandler(413)
 def handle_too_large(e):
-    return jsonify({"error": "File exceeds the 1.5 GB upload limit (413 Request Entity Too Large)."}), 413
+    return jsonify({"error": "File exceeds the 2.5 GB upload limit (413 Request Entity Too Large)."}), 413
 
 
 def valid_pdf(upload):
@@ -443,7 +443,6 @@ def compress_single_pdf_optimized(
                 pass
 
     # 1. Discover unique image xrefs and their displaying page dimensions
-    # Skip any images with smask > 0 to protect transparent alpha cutouts from turning into black boxes
     image_xrefs = {}
     page_dims = {}
     for pno in range(total_pages):
@@ -453,10 +452,8 @@ def compress_single_pdf_optimized(
         for img_info in page.get_images():
             xref = img_info[0]
             smask = img_info[1]
-            if smask > 0:
-                continue
             if xref not in image_xrefs:
-                image_xrefs[xref] = pno
+                image_xrefs[xref] = (pno, smask)
 
     total_images = len(image_xrefs)
 
@@ -465,21 +462,21 @@ def compress_single_pdf_optimized(
     min_stream_len = 4096 if must_shrink else (12288 if preset != "ultra" else 20480)
     candidates = []
     total_cand_bytes = 0
-    for xref, pno in image_xrefs.items():
+    for xref, (pno, smask) in image_xrefs.items():
         try:
             t, val = doc.xref_get_key(xref, "Length")
             if t == "int" and int(val) >= min_stream_len:
-                candidates.append((xref, pno))
+                candidates.append((xref, pno, smask))
                 total_cand_bytes += int(val)
         except Exception:
             pass
 
     t_analysis = time.perf_counter() - t_analysis_start
 
-    # If no candidate images, perform stream compaction with garbage=4, deflate=True
+    # If no candidate images, perform stream compaction with garbage=2, deflate=True
     if not candidates:
         t_save_start = time.perf_counter()
-        doc.save(output_path, garbage=4, deflate=True, clean=True, use_objstms=1)
+        doc.save(output_path, garbage=2, deflate=True, use_objstms=1)
         doc.close()
         t_save = time.perf_counter() - t_save_start
         out_size = os.path.getsize(output_path)
@@ -513,12 +510,12 @@ def compress_single_pdf_optimized(
         avail_img_bytes = target_bytes * 0.88
         if total_cand_bytes > 0:
             ratio = avail_img_bytes / total_cand_bytes
-            scale_factor = math.sqrt(max(0.08, min(1.0, ratio)))
-            dpi_target = max(32, int(base_dpi * scale_factor))
+            scale_factor = math.sqrt(max(0.06, min(1.0, ratio)))
+            dpi_target = max(30, int(base_dpi * scale_factor))
             quality = max(24, int(base_q * (scale_factor ** 0.4)))
         else:
-            scale_factor = math.sqrt(max(0.08, min(1.0, overall_ratio)))
-            dpi_target = max(32, int(base_dpi * scale_factor))
+            scale_factor = math.sqrt(max(0.06, min(1.0, overall_ratio)))
+            dpi_target = max(30, int(base_dpi * scale_factor))
             quality = max(24, int(base_q * (scale_factor ** 0.4)))
         dim_limit_scale = min(1.0, math.sqrt(overall_ratio) * 0.95)
     else:
@@ -533,19 +530,29 @@ def compress_single_pdf_optimized(
             return 0
 
         extracted = []
-        for xref, pno in cur_cand:
+        for xref, pno, smask in cur_cand:
             try:
                 b = current_doc.extract_image(xref)
                 if b and len(b.get("image", b"")) >= min_stream_len:
                     pw, ph = page_dims.get(pno, (595.0, 842.0))
-                    # Pre-extract CMYK on main thread to prevent thread races
-                    cmyk_data = None
-                    if b.get("colorspace", 3) == 4 or b.get("cs-name", "") == "DeviceCMYK":
-                        pix = fitz.Pixmap(current_doc, xref)
+                    cs = b.get("colorspace", 3)
+                    cs_name = b.get("cs-name", "")
+                    pix = fitz.Pixmap(current_doc, xref)
+                    if cs == 4 or cs_name == "DeviceCMYK" or pix.colorspace.name == "DeviceCMYK":
+                        pix_data = ("CMYK", pix.width, pix.height, pix.samples)
+                    else:
                         if pix.colorspace != fitz.csRGB:
                             pix = fitz.Pixmap(fitz.csRGB, pix)
-                        cmyk_data = (pix.width, pix.height, pix.samples)
-                    extracted.append((xref, pno, b, pw, ph, cmyk_data))
+                        pix_data = ("RGB", pix.width, pix.height, pix.samples)
+
+                    smask_data = None
+                    if smask > 0:
+                        try:
+                            spix = fitz.Pixmap(current_doc, smask)
+                            smask_data = (spix.width, spix.height, spix.samples)
+                        except Exception:
+                            pass
+                    extracted.append((xref, pno, smask, b, pw, ph, pix_data, smask_data))
             except Exception:
                 pass
 
@@ -553,13 +560,11 @@ def compress_single_pdf_optimized(
             return 0
 
         def worker(item):
-            xref, pno, b, pw, ph, cmyk_data = item
-            img_bytes = b["image"]
-            orig_len = len(img_bytes)
+            xref, pno, smask, b, pw, ph, pix_data, smask_data = item
+            orig_len = len(b.get("image", b""))
             orig_w = b.get("width", 0)
             orig_h = b.get("height", 0)
             ext = b.get("ext", "").lower()
-            cs = b.get("colorspace", 3)
 
             max_w = max(1, int(round((pw / 72.0) * cur_dpi * force_scale)))
             max_h = max(1, int(round((ph / 72.0) * cur_dpi * force_scale)))
@@ -568,47 +573,39 @@ def compress_single_pdf_optimized(
                 scale = min(scale, cur_dim_limit * force_scale)
             scale = min(1.0, max(0.05, scale))
 
-            # If input is comfortably below budget and high quality, skip re-encoding
+            # Skip re-encoding if comfortably under target limit
             if not must_shrink and force_scale >= 0.99:
-                if scale >= 0.96 and ext in ("jpeg", "jpg") and cur_q >= 82 and cs != 4:
+                if scale >= 0.96 and ext in ("jpeg", "jpg") and cur_q >= 82 and smask == 0:
                     return None
 
             new_w = max(30, int(round(orig_w * scale)))
             new_h = max(30, int(round(orig_h * scale)))
 
             try:
-                if cmyk_data:
-                    w, h, samples = cmyk_data
-                    pil_img = Image.frombytes("RGB", [w, h], samples)
-                else:
-                    pil_img = Image.open(io.BytesIO(img_bytes))
-
+                mode, w, h, samples = pix_data
+                pil_img = Image.frombytes(mode, [w, h], samples)
                 if scale < 0.98 or force_scale < 0.99:
                     pil_img = pil_img.resize((new_w, new_h), Image.Resampling.BILINEAR)
 
                 out_buf = io.BytesIO()
-                if pil_img.mode in ("RGBA", "LA", "P"):
-                    if pil_img.mode == "RGBA":
-                        extrema = pil_img.getchannel("A").getextrema()
-                        if extrema == (255, 255):
-                            pil_img = pil_img.convert("RGB")
-                            pil_img.save(out_buf, format="JPEG", quality=cur_q, optimize=True)
-                        else:
-                            pil_img.save(out_buf, format="PNG", optimize=True)
-                    else:
-                        pil_img.save(out_buf, format="PNG", optimize=True)
-                else:
-                    if pil_img.mode not in ("RGB", "L"):
-                        pil_img = pil_img.convert("RGB")
-                    pil_img.save(out_buf, format="JPEG", quality=cur_q, optimize=True)
-
+                pil_img.save(out_buf, format="JPEG", quality=cur_q, optimize=True)
                 new_bytes = out_buf.getvalue()
+
+                new_smask_bytes = None
+                if smask_data and (scale < 0.98 or force_scale < 0.99):
+                    sw, sh, ssamples = smask_data
+                    pil_mask = Image.frombytes("L", [sw, sh], ssamples)
+                    pil_mask = pil_mask.resize((new_w, new_h), Image.Resampling.BILINEAR)
+                    sbuf = io.BytesIO()
+                    pil_mask.save(sbuf, format="PNG")
+                    new_smask_bytes = sbuf.getvalue()
+
                 if must_shrink or force_scale < 0.99:
                     if len(new_bytes) < orig_len:
-                        return (xref, pno, new_bytes)
+                        return (xref, smask, new_bytes, new_smask_bytes, new_w, new_h)
                 else:
                     if len(new_bytes) < orig_len * 0.98:
-                        return (xref, pno, new_bytes)
+                        return (xref, smask, new_bytes, new_smask_bytes, new_w, new_h)
             except Exception:
                 pass
             return None
@@ -620,9 +617,15 @@ def compress_single_pdf_optimized(
         replaced = 0
         for res in opt_results:
             if res:
-                xref, pno, new_bytes = res
+                xref, smask, new_bytes, new_smask_bytes, new_w, new_h = res
                 try:
-                    current_doc[pno].replace_image(xref, stream=new_bytes)
+                    current_doc.update_stream(xref, new_bytes)
+                    current_doc.xref_set_key(xref, "Width", str(new_w))
+                    current_doc.xref_set_key(xref, "Height", str(new_h))
+                    if smask > 0 and new_smask_bytes:
+                        current_doc.update_stream(smask, new_smask_bytes)
+                        current_doc.xref_set_key(smask, "Width", str(new_w))
+                        current_doc.xref_set_key(smask, "Height", str(new_h))
                     replaced += 1
                 except Exception:
                     pass
@@ -638,9 +641,9 @@ def compress_single_pdf_optimized(
     )
     t_opt = time.perf_counter() - t_opt_start
 
-    # 5. Save optimized document using garbage=4, deflate=True, use_objstms=1
+    # 5. Save optimized document using garbage=2, deflate=True, use_objstms=1 (super fast)
     t_save_start = time.perf_counter()
-    doc.save(output_path, garbage=4, deflate=True, clean=True, use_objstms=1)
+    doc.save(output_path, garbage=2, deflate=True, use_objstms=1)
     t_save = time.perf_counter() - t_save_start
     out_size = os.path.getsize(output_path)
     attempts = 1
@@ -659,8 +662,7 @@ def compress_single_pdf_optimized(
         cur_cands = []
         for pno in range(len(doc)):
             for img_info in doc[pno].get_images():
-                if img_info[1] <= 0:
-                    cur_cands.append((img_info[0], pno))
+                cur_cands.append((img_info[0], pno, img_info[1]))
 
         images_opt += optimize_images_in_doc(
             doc,
@@ -672,7 +674,7 @@ def compress_single_pdf_optimized(
         )
         t_save_extra_start = time.perf_counter()
         temp_iter = output_path + f".iter{attempts}.pdf"
-        doc.save(temp_iter, garbage=4, deflate=True, clean=True, use_objstms=1)
+        doc.save(temp_iter, garbage=2, deflate=True, use_objstms=1)
         doc.close()
         shutil.move(temp_iter, output_path)
         doc = fitz.open(output_path)

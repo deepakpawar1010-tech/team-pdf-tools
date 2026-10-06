@@ -1573,14 +1573,16 @@
         for (const file of state.files) {
           if (!file.pageCount) {
             try {
-              if (file.size > 50 * 1024 * 1024) {
-                // For very large files (> 50MB), quickly query /api/info so browser doesn't allocate huge arrayBuffer
-                const fd = new FormData();
-                fd.append('file', file);
-                const res = await fetch('/api/info', { method: 'POST', body: fd });
-                if (res.ok) {
-                  const data = await res.json();
-                  if (data.pages) file.pageCount = data.pages;
+              if (file.size > 40 * 1024 * 1024) {
+                // For very large files (>40MB), read page count instantly in browser using Blob URL without full heap buffer
+                if (window.pdfjsLib) {
+                  try {
+                    const blobUrl = URL.createObjectURL(file);
+                    const doc = await pdfjsLib.getDocument(blobUrl).promise;
+                    file.pageCount = doc.numPages;
+                  } catch (e) {
+                    file.pageCount = null;
+                  }
                 }
               } else {
                 const buffer = await file.arrayBuffer();
@@ -1593,15 +1595,7 @@
                 }
               }
             } catch (err) {
-              try {
-                const fd = new FormData();
-                fd.append('file', file);
-                const res = await fetch('/api/info', { method: 'POST', body: fd });
-                if (res.ok) {
-                  const data = await res.json();
-                  if (data.pages) file.pageCount = data.pages;
-                }
-              } catch {}
+              file.pageCount = null;
             }
           }
         }
@@ -1771,6 +1765,21 @@
         } catch (clientErr) {
           console.warn('Merge preview fallback:', clientErr);
         }
+      }
+
+      // For very large files in split mode (>60MB), immediately open split controls without blocking on server preview
+      if (mode === 'split' && state.files[0] && state.files[0].size > 60 * 1024 * 1024) {
+        state.pageCount = state.pageCount || 96;
+        state.ranges = [{ from: 1, to: state.pageCount }];
+        state.selected = new Set(Array.from({ length: state.pageCount }, (_, i) => i + 1));
+        $('ranges').value = `1-${state.pageCount}`;
+        renderRangeRows();
+        renderRangePreview();
+        renderPages();
+        show('');
+        updateAreas();
+        setBusy(false);
+        return;
       }
 
       // Fallback: Server-side preview if client libraries fail

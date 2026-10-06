@@ -43,7 +43,8 @@ def run_server(port: int):
         host="127.0.0.1",
         port=port,
         threads=8,
-        channel_timeout=300,
+        channel_timeout=600,
+        max_request_body_size=int(2.5 * 1024 * 1024 * 1024),  # 2.5 GB limit
         cleanup_interval=30,
         _quiet=True,
     )
