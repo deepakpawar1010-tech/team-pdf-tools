@@ -16,7 +16,7 @@ import tempfile
 import threading
 import subprocess
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
+from functools import wraps
 
 from PIL import Image
 import pymupdf
@@ -27,6 +27,9 @@ from pypdf import PdfReader, PdfWriter
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 word_lock = threading.Lock()
+heavy_process_lock = threading.Lock()
+MAX_RENDER_PIXELS = 8_000_000
+MAX_DOCUMENT_PAGES = 600
 
 try:
     from pdf2docx import Converter
@@ -59,6 +62,19 @@ else:
 # Configure a 1.5 GiB upload limit for large PDF processing.
 MAX_UPLOAD_SIZE_BYTES = int(1.5 * 1024 * 1024 * 1024)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE_BYTES
+
+
+def memory_guarded(view):
+    """Serialize memory-heavy document jobs on small hosted instances."""
+    @wraps(view)
+    def guarded(*args, **kwargs):
+        if not heavy_process_lock.acquire(blocking=False):
+            return jsonify({"error": "The server is processing another document. Please try again shortly."}), 429
+        try:
+            return view(*args, **kwargs)
+        finally:
+            heavy_process_lock.release()
+    return guarded
 
 
 @app.errorhandler(413)
@@ -132,6 +148,22 @@ def smart_send_file(file_path_or_buffer, download_name: str, mimetype: str = "ap
     )
     resp.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
     return resp
+
+
+def send_temporary_file(file_path: str, download_name: str, mimetype: str, cleanup_paths=()):
+    """Stream a generated file and remove temporary files after the response closes."""
+    response = smart_send_file(file_path, download_name=download_name, mimetype=mimetype)
+
+    def cleanup():
+        for path in cleanup_paths:
+            try:
+                if path and os.path.exists(path):
+                    os.remove(path)
+            except OSError:
+                pass
+
+    response.call_on_close(cleanup)
+    return response
 
 
 @app.get("/")
@@ -220,6 +252,7 @@ def info():
 
 
 @app.post("/api/worksheet-info")
+@memory_guarded
 def worksheet_info():
     input_path = None
     try:
@@ -253,6 +286,7 @@ def worksheet_info():
 
 
 @app.post("/api/previews")
+@memory_guarded
 def previews():
     """Render lightweight page thumbnails for the browser UI.
 
@@ -336,11 +370,10 @@ def compress_single_pdf_optimized(
     preset: str = "balanced",
     max_ceiling_mb: float = None,
 ) -> dict:
-    """Intelligently compresses a PDF using fast xref metadata filtering, multithreaded
-    image optimization, adaptive budget downscaling, and PyMuPDF stream compaction.
-    Strictly guarantees that output file size does not exceed the preset target limit
-    (15 MB Balanced, 30 MB High, 45 MB Ultra), while 100% preserving selectable text,
-    vector artwork, annotations, and page layout.
+    """Optimize image streams, then use a searchable raster fallback if needed.
+
+    Raster fallback can alter fine layout details and may reduce editability of
+    non-text objects; it is used only when needed to meet the selected size limit.
     """
     t_start = time.perf_counter()
     input_size = os.path.getsize(input_path)
@@ -360,6 +393,10 @@ def compress_single_pdf_optimized(
     doc = fitz.open(input_path)
     total_pages = len(doc)
     t_open = time.perf_counter() - t_open_start
+
+    if total_pages > MAX_DOCUMENT_PAGES:
+        doc.close()
+        raise ValueError(f"This PDF exceeds the {MAX_DOCUMENT_PAGES}-page limit for this server.")
 
     # Fast path: Empty document
     if total_pages == 0:
@@ -429,102 +466,79 @@ def compress_single_pdf_optimized(
     # When file exceeds target ceiling, inspect images down to 4 KB so multi-page PDFs are fully compressed
     min_stream_len = 4096 if must_shrink else (12288 if preset != "ultra" else 20480)
     candidates = []
-    total_cand_bytes = 0
     for xref, (pno, smask) in image_xrefs.items():
         try:
             t, val = doc.xref_get_key(xref, "Length")
             if t == "int" and int(val) >= min_stream_len:
                 candidates.append((xref, pno, smask))
-                total_cand_bytes += int(val)
         except Exception:
             pass
 
     t_analysis = time.perf_counter() - t_analysis_start
 
-    # 3. Dynamically compute resolution and quality budget to strictly hit the ceiling
+    # Start at the selected preset's quality. The earlier file-size ratio
+    # calculation over-downsampled large scans even when the ceiling had room.
     base_dpi = cfg["dpi"]
     base_q = cfg["quality"]
-
+    dpi_target = base_dpi
+    quality = base_q
     dim_limit_scale = 1.0
-    if must_shrink:
-        overall_ratio = target_bytes / max(1, input_size)
-        avail_img_bytes = target_bytes * 0.88
-        if total_cand_bytes > 0:
-            ratio = avail_img_bytes / total_cand_bytes
-            scale_factor = math.sqrt(max(0.06, min(1.0, ratio)))
-            dpi_target = max(30, int(base_dpi * scale_factor))
-            quality = max(24, int(base_q * (scale_factor ** 0.4)))
-        else:
-            scale_factor = math.sqrt(max(0.06, min(1.0, overall_ratio)))
-            dpi_target = max(30, int(base_dpi * scale_factor))
-            quality = max(24, int(base_q * (scale_factor ** 0.4)))
-        dim_limit_scale = min(1.0, math.sqrt(overall_ratio) * 0.95)
-    else:
-        dpi_target = base_dpi
-        quality = base_q
 
     t_opt_start = time.perf_counter()
 
-    # 4. Multithreaded Pillow image optimization function
+    # 4. Optimize one decoded image at a time. Keeping all decoded images in a
+    # list and processing eight concurrently can exceed Render Free's RAM.
     def optimize_images_in_doc(current_doc, cur_dpi, cur_q, cur_cand, force_scale=1.0, cur_dim_limit=1.0):
         if not cur_cand:
             return 0
 
-        extracted = []
-        for xref, pno, smask in cur_cand:
+        def optimize_one(xref, pno, smask):
             try:
                 b = current_doc.extract_image(xref)
-                if b and len(b.get("image", b"")) >= min_stream_len:
-                    pw, ph = page_dims.get(pno, (595.0, 842.0))
-                    cs = b.get("colorspace", 3)
-                    cs_name = b.get("cs-name", "")
-                    pix = fitz.Pixmap(current_doc, xref)
-                    if cs == 4 or cs_name == "DeviceCMYK" or pix.colorspace.name == "DeviceCMYK":
-                        pix_data = ("CMYK", pix.width, pix.height, pix.samples)
-                    else:
-                        if pix.colorspace != fitz.csRGB:
-                            pix = fitz.Pixmap(fitz.csRGB, pix)
-                        pix_data = ("RGB", pix.width, pix.height, pix.samples)
+                if not b or len(b.get("image", b"")) < min_stream_len:
+                    return False
+                orig_w = int(b.get("width", 0))
+                orig_h = int(b.get("height", 0))
+                if orig_w < 1 or orig_h < 1 or orig_w * orig_h > MAX_RENDER_PIXELS:
+                    return False
+                pw, ph = page_dims.get(pno, (595.0, 842.0))
+                cs = b.get("colorspace", 3)
+                cs_name = b.get("cs-name", "")
+                if cs == 4 or cs_name == "DeviceCMYK":
+                    return False
+                pix = fitz.Pixmap(current_doc, xref)
+                if pix.colorspace.name == "DeviceCMYK":
+                    return False
+                if pix.colorspace != fitz.csRGB:
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                pix_data = ("RGB", pix.width, pix.height, pix.samples)
 
-                    smask_data = None
-                    if smask > 0:
-                        try:
-                            spix = fitz.Pixmap(current_doc, smask)
-                            smask_data = (spix.width, spix.height, spix.samples)
-                        except Exception:
-                            pass
-                    extracted.append((xref, pno, smask, b, pw, ph, pix_data, smask_data))
-            except Exception:
-                pass
+                smask_data = None
+                if smask > 0:
+                    try:
+                        spix = fitz.Pixmap(current_doc, smask)
+                        smask_data = (spix.width, spix.height, spix.samples)
+                    except Exception:
+                        pass
+                orig_len = len(b.get("image", b""))
+                ext = b.get("ext", "").lower()
 
-        if not extracted:
-            return 0
+                max_w = max(1, int(round((pw / 72.0) * cur_dpi * force_scale)))
+                max_h = max(1, int(round((ph / 72.0) * cur_dpi * force_scale)))
+                scale = min(1.0, max_w / max(1, orig_w), max_h / max(1, orig_h)) * force_scale
+                if must_shrink and cur_dim_limit < 1.0:
+                    scale = min(scale, cur_dim_limit * force_scale)
+                scale = min(1.0, max(0.05, scale))
 
-        def worker(item):
-            xref, pno, smask, b, pw, ph, pix_data, smask_data = item
-            orig_len = len(b.get("image", b""))
-            orig_w = b.get("width", 0)
-            orig_h = b.get("height", 0)
-            ext = b.get("ext", "").lower()
+                if not must_shrink and force_scale >= 0.99:
+                    if scale >= 0.96 and ext in ("jpeg", "jpg") and cur_q >= 82 and smask == 0:
+                        return False
 
-            max_w = max(1, int(round((pw / 72.0) * cur_dpi * force_scale)))
-            max_h = max(1, int(round((ph / 72.0) * cur_dpi * force_scale)))
-            scale = min(1.0, max_w / max(1, orig_w), max_h / max(1, orig_h)) * force_scale
-            if must_shrink and cur_dim_limit < 1.0:
-                scale = min(scale, cur_dim_limit * force_scale)
-            scale = min(1.0, max(0.05, scale))
-
-            # Skip re-encoding if comfortably under target limit
-            if not must_shrink and force_scale >= 0.99:
-                if scale >= 0.96 and ext in ("jpeg", "jpg") and cur_q >= 82 and smask == 0:
-                    return None
-
-            new_w = max(30, int(round(orig_w * scale)))
-            new_h = max(30, int(round(orig_h * scale)))
-
-            try:
+                new_w = max(30, int(round(orig_w * scale)))
+                new_h = max(30, int(round(orig_h * scale)))
                 mode, w, h, samples = pix_data
                 pil_img = Image.frombytes(mode, [w, h], samples)
+                del samples, pix_data
                 if scale < 0.98 or force_scale < 0.99:
                     pil_img = pil_img.resize((new_w, new_h), Image.Resampling.BILINEAR)
 
@@ -536,40 +550,30 @@ def compress_single_pdf_optimized(
                 if smask_data and (scale < 0.98 or force_scale < 0.99):
                     sw, sh, ssamples = smask_data
                     pil_mask = Image.frombytes("L", [sw, sh], ssamples)
+                    del ssamples, smask_data
                     pil_mask = pil_mask.resize((new_w, new_h), Image.Resampling.BILINEAR)
                     sbuf = io.BytesIO()
                     pil_mask.save(sbuf, format="PNG")
                     new_smask_bytes = sbuf.getvalue()
 
-                if must_shrink or force_scale < 0.99:
-                    if len(new_bytes) < orig_len:
-                        return (xref, smask, new_bytes, new_smask_bytes, new_w, new_h)
-                else:
-                    if len(new_bytes) < orig_len * 0.98:
-                        return (xref, smask, new_bytes, new_smask_bytes, new_w, new_h)
+                should_replace = len(new_bytes) < (orig_len if must_shrink or force_scale < 0.99 else orig_len * 0.98)
+                if not should_replace:
+                    return False
+                current_doc.update_stream(xref, new_bytes)
+                current_doc.xref_set_key(xref, "Width", str(new_w))
+                current_doc.xref_set_key(xref, "Height", str(new_h))
+                if smask > 0 and new_smask_bytes:
+                    current_doc.update_stream(smask, new_smask_bytes)
+                    current_doc.xref_set_key(smask, "Width", str(new_w))
+                    current_doc.xref_set_key(smask, "Height", str(new_h))
+                return True
             except Exception:
-                pass
-            return None
-
-        workers = min(8, os.cpu_count() or 4)
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            opt_results = list(pool.map(worker, extracted))
+                return False
 
         replaced = 0
-        for res in opt_results:
-            if res:
-                xref, smask, new_bytes, new_smask_bytes, new_w, new_h = res
-                try:
-                    current_doc.update_stream(xref, new_bytes)
-                    current_doc.xref_set_key(xref, "Width", str(new_w))
-                    current_doc.xref_set_key(xref, "Height", str(new_h))
-                    if smask > 0 and new_smask_bytes:
-                        current_doc.update_stream(smask, new_smask_bytes)
-                        current_doc.xref_set_key(smask, "Width", str(new_w))
-                        current_doc.xref_set_key(smask, "Height", str(new_h))
-                    replaced += 1
-                except Exception:
-                    pass
+        for xref, pno, smask in cur_cand:
+            if optimize_one(xref, pno, smask):
+                replaced += 1
         return replaced
 
     t_opt = 0.0
@@ -593,7 +597,7 @@ def compress_single_pdf_optimized(
     attempts = 1
 
     # 6. Multi-pass iterative refinement if output still exceeds chosen ceiling limit
-    while out_size > target_bytes and attempts < 2 and candidates:
+    while out_size > target_bytes and attempts < 4 and candidates:
         prev_size = out_size
         attempts += 1
         excess_ratio = out_size / target_bytes
@@ -614,8 +618,8 @@ def compress_single_pdf_optimized(
             dpi_target,
             quality,
             cur_cands,
-            force_scale=dim_scale,
-            cur_dim_limit=dim_scale,
+            force_scale=1.0,
+            cur_dim_limit=1.0,
         )
         t_save_extra_start = time.perf_counter()
         temp_iter = output_path + f".iter{attempts}.pdf"
@@ -651,10 +655,16 @@ def compress_single_pdf_optimized(
             h_dpi = 150
             h_q = 72
 
+        page_budget = target_bytes / max(1, len(src_doc))
+        budget_dpi = max(35, int(150 * math.sqrt(page_budget / (250 * 1024))))
+        h_dpi = min(h_dpi, budget_dpi)
+
         for pno in range(len(src_doc)):
             page = src_doc[pno]
             rect = page.rect
-            pix = page.get_pixmap(dpi=h_dpi)
+            page_area = max(1.0, rect.width * rect.height)
+            safe_dpi = min(h_dpi, 72 * math.sqrt(MAX_RENDER_PIXELS / page_area))
+            pix = page.get_pixmap(dpi=safe_dpi, colorspace=fitz.csRGB, alpha=False)
             pil_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             buf = io.BytesIO()
             pil_img.save(buf, format="JPEG", quality=h_q, optimize=True)
@@ -685,56 +695,20 @@ def compress_single_pdf_optimized(
     else:
         doc.close()
 
-    # 8. RE-COMPRESSION GUARANTEE: If re-compressing an already compressed file with the SAME preset,
-    # and out_size is >= input_size, run tightening so it actively reduces further!
-    if out_size >= input_size:
-        try:
-            src_doc = fitz.open(input_path)
-            num_src_pages = len(src_doc)
-            if num_src_pages > 0:
-                hybrid_doc = fitz.open()
-                h_dpi = max(60, int(base_dpi * 0.85))
-                h_q = max(35, int(base_q * 0.82))
-                for pno in range(num_src_pages):
-                    page = src_doc[pno]
-                    rect = page.rect
-                    pix = page.get_pixmap(dpi=h_dpi)
-                    pil_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                    buf = io.BytesIO()
-                    pil_img.save(buf, format="JPEG", quality=h_q, optimize=True)
-                    new_page = hybrid_doc.new_page(width=rect.width, height=rect.height)
-                    new_page.insert_image(rect, stream=buf.getvalue())
-                    # Preserve searchable / selectable text on top
-                    blocks = page.get_text("blocks")
-                    for b in blocks:
-                        if len(b) >= 5 and b[4].strip():
-                            txt = b[4].strip()
-                            r = fitz.Rect(b[0], b[1], b[2], b[3])
-                            try:
-                                new_page.insert_textbox(r, txt, fontsize=10, render_mode=3)
-                            except Exception:
-                                pass
-                src_doc.close()
-                temp_re = output_path + ".recomp.pdf"
-                hybrid_doc.save(temp_re, garbage=2, deflate=True, use_objstms=1)
-                hybrid_doc.close()
-                recomp_size = os.path.getsize(temp_re)
-                if recomp_size < input_size:
-                    shutil.move(temp_re, output_path)
-                    out_size = recomp_size
-                    images_opt += num_src_pages
-                else:
-                    try:
-                        os.remove(temp_re)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
     # Safety: Never produce output larger than input if input was already within ceiling
     if out_size >= input_size and input_size <= target_bytes:
         shutil.copyfile(input_path, output_path)
         out_size = input_size
+
+    if out_size > target_bytes:
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+        raise ValueError(
+            f"Could not reduce this PDF below {target_max_mb:g} MB without more aggressive quality loss. "
+            "Try the next lower compression preset."
+        )
 
     out_mb = out_size / (1024 * 1024)
     pct_saved = (1.0 - (out_size / input_size)) * 100 if input_size > 0 else 0.0
@@ -757,10 +731,12 @@ def compress_single_pdf_optimized(
 
 
 @app.post("/api/split")
+@memory_guarded
 def split_pdf():
     t_start = time.perf_counter()
     input_path = None
     output_path = None
+    temp_split_paths = []
     try:
         upload = request.files.get("file")
         valid_pdf(upload)
@@ -774,6 +750,9 @@ def split_pdf():
 
         doc = fitz.open(input_path)
         total_pages = len(doc)
+        if total_pages > MAX_DOCUMENT_PAGES:
+            doc.close()
+            raise ValueError(f"This PDF exceeds the {MAX_DOCUMENT_PAGES}-page limit for this server.")
         t_open = time.perf_counter() - t_open_start
 
         selected_ranges = []
@@ -859,15 +838,22 @@ def split_pdf():
         with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as zip_tmp:
             output_path = zip_tmp.name
 
-        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_STORED) as zf:
             for number, (start, end) in enumerate(selected_ranges, start=1):
                 sub_doc = fitz.open()
-                sub_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
-                pdf_bytes = sub_doc.tobytes(garbage=0, deflate=False)
-                sub_doc.close()
+                try:
+                    sub_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as sub_tmp:
+                        sub_path = sub_tmp.name
+                    temp_split_paths.append(sub_path)
+                    sub_doc.save(sub_path, garbage=0, deflate=False)
+                finally:
+                    sub_doc.close()
                 suffix = f"page-{start}" if start == end else f"pages-{start}-{end}"
                 file_entry_name = output_name(upload.filename, f"{number:02d}_{suffix}")
-                zf.writestr(file_entry_name, pdf_bytes)
+                zf.write(sub_path, arcname=file_entry_name)
+                os.remove(sub_path)
+                temp_split_paths.remove(sub_path)
 
         t_proc = time.perf_counter() - t_proc_start
         doc.close()
@@ -909,6 +895,12 @@ def split_pdf():
         )
     except Exception as error:
         logger.exception("Split PDF failed: %s", error)
+        for path in temp_split_paths:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
         if input_path and os.path.exists(input_path):
             try:
                 os.remove(input_path)
@@ -923,6 +915,7 @@ def split_pdf():
 
 
 @app.post("/api/merge")
+@memory_guarded
 def merge_pdf():
     t_start = time.perf_counter()
     input_paths = []
@@ -945,6 +938,10 @@ def merge_pdf():
             total_input_bytes += os.path.getsize(tmp_path)
 
             sub_doc = fitz.open(tmp_path)
+            if len(out_doc) + len(sub_doc) > MAX_DOCUMENT_PAGES:
+                sub_doc.close()
+                out_doc.close()
+                raise ValueError(f"Merged PDFs cannot exceed {MAX_DOCUMENT_PAGES} pages on this server.")
             out_doc.insert_pdf(sub_doc)
             sub_doc.close()
         t_open_and_insert = time.perf_counter() - t_open_start
@@ -1017,6 +1014,7 @@ def merge_pdf():
 
 
 @app.post("/api/compress")
+@memory_guarded
 def compress_pdf():
     input_paths = []
     output_path = None
@@ -1075,45 +1073,11 @@ def compress_pdf():
                 stats["total_time"],
             )
 
-            with open(output_path, "rb") as _f:
-
-
-                output_bytes = _f.read()
-
-
-            for p in input_paths:
-
-
-                try:
-
-
-                    if os.path.exists(p): os.remove(p)
-
-
-                except Exception: pass
-
-
-            try:
-
-
-                if output_path and os.path.exists(output_path): os.remove(output_path)
-
-
-            except Exception: pass
-
-
-            return smart_send_file(
-
-
-                io.BytesIO(output_bytes),
-
-
+            return send_temporary_file(
+                output_path,
                 download_name=output_name(upload.filename, "compressed"),
-
-
                 mimetype="application/pdf",
-
-
+                cleanup_paths=input_paths + [output_path],
             )
 
         # Case 2: Batch conversion (Multiple PDF files) -> Output as ZIP archive
@@ -1125,7 +1089,7 @@ def compress_pdf():
         total_batch_in_bytes = 0
         total_batch_out_bytes = 0
 
-        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_STORED) as zf:
             for upload in uploads:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as in_tmp:
                     in_path = in_tmp.name
@@ -1175,57 +1139,11 @@ def compress_pdf():
             t_batch_total,
         )
 
-        with open(output_path, "rb") as _f:
-
-
-            output_bytes = _f.read()
-
-
-        for p in input_paths:
-
-
-            try:
-
-
-                if os.path.exists(p): os.remove(p)
-
-
-            except Exception: pass
-
-
-        for p in temp_compressed_files:
-
-
-            try:
-
-
-                if os.path.exists(p): os.remove(p)
-
-
-            except Exception: pass
-
-
-        try:
-
-
-            if output_path and os.path.exists(output_path): os.remove(output_path)
-
-
-        except Exception: pass
-
-
-        return smart_send_file(
-
-
-            io.BytesIO(output_bytes),
-
-
+        return send_temporary_file(
+            output_path,
             download_name="compressed-pdfs-bundle.zip",
-
-
             mimetype="application/zip",
-
-
+            cleanup_paths=input_paths + temp_compressed_files + [output_path],
         )
     except Exception as error:
         logger.exception("Compress PDF failed: %s", error)
@@ -1250,6 +1168,7 @@ def compress_pdf():
 
 
 @app.post("/api/pdf-to-word")
+@memory_guarded
 def pdf_to_word():
     input_path = None
     output_path = None
@@ -1489,6 +1408,7 @@ def convert_docx_to_pdf_high_fidelity(input_docx: str, output_pdf: str):
 
 
 @app.post("/api/word-to-pdf")
+@memory_guarded
 def word_to_pdf():
     input_path = None
     output_path = None
@@ -1537,6 +1457,7 @@ def word_to_pdf():
 
 
 @app.post("/api/worksheet-info")
+@memory_guarded
 def worksheet_info_api():
     temp_files: list[str] = []
     try:
@@ -1604,6 +1525,7 @@ def worksheet_info_api():
 
 @app.post("/api/worksheet-splitter")
 @app.post("/api/oly-ete-splitter")
+@memory_guarded
 def worksheet_splitter_api():
     temp_files: list[str] = []
     try:
