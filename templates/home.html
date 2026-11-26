@@ -293,6 +293,12 @@
       box-shadow: 0 12px 24px -6px rgba(15, 23, 42, 0.08), 0 4px 8px -4px rgba(15, 23, 42, 0.03);
     }
 
+    .tool-tile:focus-visible {
+      outline: 3px solid rgba(225, 29, 72, 0.25);
+      outline-offset: 3px;
+      border-color: var(--primary);
+    }
+
     .tool-tile:hover::before { opacity: 1; }
 
     .tile-header {
@@ -496,8 +502,6 @@
       <a href="/pdf-to-word">PDF to Word</a>
       <a href="/word-to-pdf">Word to PDF</a>
       <a href="/worksheet-splitter">Work-sheet Splitter <span class="new-badge">New</span></a>
-      <a href="/pdf-to-markdown">PDF to Markdown <span class="soon-badge">Soon</span></a>
-      <a href="/pdf-to-excel">PDF to Excel <span class="soon-badge">Soon</span></a>
     </nav>
   </header>
 
@@ -535,9 +539,6 @@
       </button>
       <button class="pill-btn" data-category="education" type="button">
         Exams &amp; Worksheets <span class="pill-count">1</span>
-      </button>
-      <button class="pill-btn" data-category="upcoming" type="button">
-        Upcoming <span class="pill-count">2</span>
       </button>
     </div>
 
@@ -643,39 +644,6 @@
         <div class="tile-footer">
           <span class="tile-tag">Olympiad &bull; SSC &bull; CBSE</span>
           <span>Open Tool &rarr;</span>
-        </div>
-      </a>
-
-
-      <!-- 8. PDF to Markdown (Upcoming) -->
-      <a class="tool-tile theme-pdf-md" data-category="upcoming" data-keywords="pdf to markdown extract headings text llm" href="/pdf-to-markdown">
-        <div class="tile-header">
-          <div class="tile-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="5" width="18" height="14" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M7 15V9l3 3 3-3v6m4-6v6m0 0l-2-2m2 2l2-2"/></svg>
-          </div>
-          <span class="soon-badge">Soon</span>
-        </div>
-        <h2>PDF to Markdown</h2>
-        <p>Extract structured headings, lists, tables, and code snippets into clean Markdown (.md) for AI and docs.</p>
-        <div class="tile-footer">
-          <span class="tile-tag">Markdown / LLM</span>
-          <span style="color: #d97706;">Preview &rarr;</span>
-        </div>
-      </a>
-
-      <!-- 9. PDF to Excel (Upcoming) -->
-      <a class="tool-tile theme-pdf-excel" data-category="upcoming" data-keywords="pdf to excel spreadsheet tables xlsx" href="/pdf-to-excel">
-        <div class="tile-header">
-          <div class="tile-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
-          </div>
-          <span class="soon-badge">Soon</span>
-        </div>
-        <h2>PDF to Excel</h2>
-        <p>Detect tabular data and financial statements in PDF files and export them to Excel (.xlsx) spreadsheets.</p>
-        <div class="tile-footer">
-          <span class="tile-tag">XLSX Tables</span>
-          <span style="color: #d97706;">Preview &rarr;</span>
         </div>
       </a>
     </section>

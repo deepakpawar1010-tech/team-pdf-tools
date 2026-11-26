@@ -7,11 +7,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"></script>
+  <script src="/static/vendor/pdf.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';"></script>
+  <script src="/static/vendor/pdf-lib.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js';"></script>
+  <script src="/static/vendor/jszip.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';"></script>
   <script>
     if (window.pdfjsLib) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/static/vendor/pdf.worker.min.js';
     }
   </script>
   <style>
@@ -159,9 +160,9 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      border: 2px dashed #cbd5e1;
+      border: 2px dashed #fecdd3;
       border-radius: var(--radius-lg);
-      background: #ffffff;
+      background: linear-gradient(180deg, #ffffff 0%, #fffafb 100%);
       padding: 40px 24px;
       text-align: center;
       cursor: pointer;
@@ -837,6 +838,10 @@
       transform: translateY(-1px);
       box-shadow: 0 6px 20px rgba(225, 29, 72, 0.4);
     }
+    .primary:active:not(:disabled) {
+      transform: translateY(0) scale(0.99);
+      box-shadow: 0 2px 8px rgba(225, 29, 72, 0.22);
+    }
     .primary:disabled {
       opacity: 0.6;
       cursor: not-allowed;
@@ -933,8 +938,6 @@
       <a class="{% if tool=='pdf-to-word' %}active{% endif %}" href="/pdf-to-word">PDF to Word</a>
       <a class="{% if tool=='word-to-pdf' %}active{% endif %}" href="/word-to-pdf">Word to PDF</a>
       <a class="{% if tool in ['worksheet-splitter', 'oly-ete-splitter'] %}active{% endif %}" href="/worksheet-splitter">Work-sheet Splitter <span style="font-size: 9.5px; font-weight: 800; text-transform: uppercase; background: #faf5ff; color: #9333ea; border: 1px solid #e9d5ff; padding: 1px 5px; border-radius: 9999px;">New</span></a>
-      <a href="/pdf-to-markdown">PDF to Markdown <span class="soon-badge">Soon</span></a>
-      <a href="/pdf-to-excel">PDF to Excel <span class="soon-badge">Soon</span></a>
     </nav>
   </header>
 
@@ -1163,6 +1166,7 @@
 
         <label class="field-label" for="quality">Compression Quality</label>
         <select id="quality" class="quality">
+          <option value="extreme">Ultra Low — up to 10 MB</option>
           <option value="balanced" selected>Balanced — up to 15 MB</option>
           <option value="high">High Clarity — up to 30 MB</option>
           <option value="ultra">Ultra Clarity — up to 45 MB</option>
@@ -1341,36 +1345,61 @@
       msg.className = 'message' + (error ? ' error' : '') + (success ? ' success' : '');
     }
 
-    window.openDownloadsFolder = async function(path) {
+    function showDownloadSuccess(filename, folderPath = null, fullPath = null) {
+      const displayFolder = folderPath || 'Downloads folder';
+      const openBtn = `<button type="button" class="open-folder-btn" onclick="openDownloadsFolder(event)" title="Open in File Explorer">📁 Open Folder</button>`;
+
+      const html = `
+        <div style="display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 4px 0;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 14.5px; color: #166534;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <span>Successfully saved to your Downloads!</span>
+            </div>
+            ${openBtn}
+          </div>
+          <div style="font-size: 13.5px; color: #15803d;">
+            📄 File: <strong>${escapeHtml(filename)}</strong>
+          </div>
+          <div style="font-size: 12px; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 5px 10px; display: inline-flex; align-items: center; gap: 6px;">
+            <span>📍 Location:</span> <code>${escapeHtml(displayFolder)}</code>
+          </div>
+        </div>
+      `;
+      show(html, false, true, true);
+    }
+
+    window.openDownloadsFolder = async function(event) {
+      const btn = (event && event.target) ? event.target.closest('.open-folder-btn') : document.querySelector('.open-folder-btn');
+      if (btn) {
+        btn.innerHTML = '⏳ Opening...';
+        btn.disabled = true;
+      }
       try {
         await fetch('/api/open-folder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: path || '' })
+          body: JSON.stringify({})
         });
+        if (btn) {
+          btn.innerHTML = '✅ Folder Opened';
+          setTimeout(() => {
+            if (btn) {
+              btn.innerHTML = '📁 Open Folder';
+              btn.disabled = false;
+            }
+          }, 2500);
+        }
       } catch (e) {
         console.error('Could not open downloads folder:', e);
+        if (btn) {
+          btn.innerHTML = '📁 Open Folder';
+          btn.disabled = false;
+        }
       }
     };
 
-    async function deliverFile(blob, filename, serverSavedPath = null) {
-      let finalPath = serverSavedPath;
-      if (!finalPath) {
-        try {
-          const fd = new FormData();
-          fd.append('file', blob, filename);
-          fd.append('filename', filename);
-          const res = await fetch('/api/save-to-downloads', { method: 'POST', body: fd });
-          if (res.ok) {
-            const d = await res.json();
-            if (d.path) finalPath = d.path;
-          }
-        } catch (e) {
-          console.warn('Direct save to downloads fallback:', e);
-        }
-      }
-
-      // Also trigger anchor click for normal web browsers
+    async function deliverFile(blob, filename) {
       try {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1381,10 +1410,11 @@
         setTimeout(() => {
           try { document.body.removeChild(a); } catch (_) {}
           URL.revokeObjectURL(url);
-        }, 1500);
-      } catch (e) {}
-
-      return finalPath;
+        }, 2000);
+      } catch (e) {
+        console.warn('Browser download failed:', e);
+      }
+      return filename;
     }
 
     function bytes(n) {
@@ -2799,12 +2829,140 @@
       }
     }
 
+    async function runClientCompress() {
+      if (!state.files.length) throw new Error('Please choose a PDF file first.');
+      if (!window.pdfjsLib) throw new Error('PDF preview library (pdf.js) is not loaded.');
+      if (!window.PDFLib) throw new Error('PDF document engine (pdf-lib) is not loaded.');
+
+      const { PDFDocument } = window.PDFLib;
+      const rawQuality = $('quality') ? $('quality').value : 'balanced';
+
+      // Map presets or numeric quality to (quality, renderScale) matching user's exact algorithm:
+      // const renderScale = quality < 0.6 ? 0.85 : quality > 0.94 ? 1.55 : quality > 0.8 ? 1.25 : 1;
+      let quality, renderScale;
+      if (rawQuality === 'extreme') {
+        // Ultra Low — up to 10 MB
+        quality = 0.48;
+        renderScale = 0.85;
+      } else if (rawQuality === 'balanced') {
+        // Balanced — up to 15 MB
+        quality = 0.65;
+        renderScale = 1.0;
+      } else if (rawQuality === 'high') {
+        // High Clarity — up to 30 MB
+        quality = 0.82;
+        renderScale = 1.25;
+      } else if (rawQuality === 'ultra') {
+        // Ultra Clarity — up to 45 MB
+        quality = 0.95;
+        renderScale = 1.55;
+      } else {
+        const num = parseFloat(rawQuality);
+        quality = (!isNaN(num) && num > 0 && num <= 1) ? num : 0.65;
+        renderScale = quality < 0.6 ? 0.85 : quality > 0.94 ? 1.55 : quality > 0.8 ? 1.25 : 1;
+      }
+
+      const isBatch = state.files.length > 1;
+      const zip = (isBatch && window.JSZip) ? new window.JSZip() : null;
+
+      for (let fIdx = 0; fIdx < state.files.length; fIdx++) {
+        const file = state.files[fIdx];
+        const filePrefix = isBatch ? `[PDF ${fIdx + 1}/${state.files.length}] ` : '';
+
+        show(`${filePrefix}Opening document: ${file.name}…`);
+
+        let source = null;
+        let blobUrl = null;
+        try {
+          if (file.size > 35 * 1024 * 1024) {
+            blobUrl = URL.createObjectURL(file);
+            source = await pdfjsLib.getDocument(blobUrl).promise;
+          } else {
+            const buf = await file.arrayBuffer();
+            source = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+          }
+
+          const output = await PDFDocument.create();
+          const totalPages = source.numPages;
+
+          for (let number = 1; number <= totalPages; number++) {
+            const pct = Math.round((number / totalPages) * 100);
+            show(`${filePrefix}Compressing page ${number} of ${totalPages} (${pct}%)…`);
+
+            const page = await source.getPage(number);
+            const original = page.getViewport({ scale: 1 });
+            const rendered = page.getViewport({ scale: renderScale });
+
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(rendered.width);
+            canvas.height = Math.round(rendered.height);
+            const ctx = canvas.getContext('2d', { alpha: false });
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            await page.render({ canvasContext: ctx, viewport: rendered }).promise;
+
+            const jpegDataUrl = canvas.toDataURL('image/jpeg', quality);
+            const image = await output.embedJpg(jpegDataUrl);
+            const resultPage = output.addPage([original.width, original.height]);
+            resultPage.drawImage(image, { x: 0, y: 0, width: original.width, height: original.height });
+
+            canvas.width = 0;
+            canvas.height = 0;
+            if (page.cleanup) page.cleanup();
+
+            if (number % 3 === 0 || totalPages <= 5) {
+              await new Promise(r => setTimeout(r, 0));
+            }
+          }
+
+          show(`${filePrefix}Optimizing & saving document…`);
+          const pdfBytes = await output.save({ useObjectStreams: true });
+
+          if (isBatch && zip) {
+            const outName = file.name.replace(/\.pdf$/i, '') + '-compressed.pdf';
+            zip.file(outName, pdfBytes);
+          } else {
+            const outName = file.name.replace(/\.pdf$/i, '') + '-compressed.pdf';
+            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+            await deliverFile(blob, outName);
+            showDownloadSuccess(outName, 'Downloads folder');
+          }
+        } finally {
+          if (source && source.destroy) source.destroy();
+          if (blobUrl) URL.revokeObjectURL(blobUrl);
+        }
+      }
+
+      if (isBatch && zip) {
+        show('Packaging all compressed PDFs into ZIP bundle…');
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const zipName = 'compressed-pdfs-bundle.zip';
+        await deliverFile(zipBlob, zipName);
+        showDownloadSuccess(zipName, 'Downloads folder');
+      }
+    }
+
     $('submit').onclick = async () => {
       if (!state.files.length) return show(mode === 'word-to-pdf' ? 'Please choose a Word (.docx) file first.' : 'Please choose a PDF file first.', true);
       if (mode === 'merge' && state.files.length < 2) return show('Merge requires at least two PDF files.', true);
 
+      // Client-Side PDF Compression (re-encodes visual pages into optimized JPEG streams)
+      if (mode === 'compress') {
+        setBusy(true);
+        try {
+          await runClientCompress();
+        } catch (compressErr) {
+          console.error('Client compression error:', compressErr);
+          show(compressErr.message || 'Could not compress PDF.', true);
+        } finally {
+          setBusy(false);
+        }
+        return;
+      }
+
       const form = new FormData();
-      if (mode === 'merge' || mode === 'worksheet-splitter' || mode === 'oly-ete-splitter' || mode === 'compress') {
+      if (mode === 'merge' || mode === 'worksheet-splitter' || mode === 'oly-ete-splitter') {
         state.files.forEach(f => form.append('files', f));
       } else {
         form.append('file', state.files[0]);
@@ -2910,9 +3068,8 @@
           const pdfBytes = await newDoc.save();
           const blob = new Blob([pdfBytes], { type: 'application/pdf' });
           const outName = file.name.replace(/\.pdf$/i, '') + '-selected-pages.pdf';
-          const savedPath = await deliverFile(blob, outName);
-          const openBtn = `<button type="button" class="open-folder-btn" onclick="openDownloadsFolder('${(savedPath || '').replace(/\\/g, '\\\\')}')">📁 Open Folder</button>`;
-          show(`Done! Saved to Downloads as <strong>${escapeHtml(outName)}</strong> ${openBtn}`, false, true, true);
+          await deliverFile(blob, outName);
+          showDownloadSuccess(outName, 'Downloads folder');
           setBusy(false);
           return;
         } catch (splitErr) {
@@ -2920,30 +3077,7 @@
         }
       }
 
-      let compressTicker = null;
-      if (mode === 'compress') {
-        const totalPages = state.files.reduce((acc, f) => acc + (f.pageCount || 0), 0) || 1;
-        let converted = 0;
-        const isBatch = state.files.length > 1;
-        show(isBatch 
-          ? `Compressing: 0 of ${totalPages} pages converted across ${state.files.length} PDFs (0%)…` 
-          : `Compressing: 0 of ${totalPages} pages converted (0%)…`);
-
-        // Dynamic page conversion ticker matching server compression speed (scales up to 1.5 GB)
-        const totalBytes = state.files.reduce((acc, f) => acc + (f.size || 0), 0);
-        const estSec = Math.max(2.0, Math.min(180, (totalBytes / (14 * 1024 * 1024)) + (totalPages * 0.08)));
-        const intervalMs = Math.max(30, Math.min(450, Math.round((estSec * 1000) / totalPages)));
-
-        compressTicker = setInterval(() => {
-          if (converted < totalPages - 1) {
-            converted++;
-            const pct = Math.round((converted / totalPages) * 100);
-            show(isBatch 
-              ? `Compressing: ${converted} of ${totalPages} pages converted across ${state.files.length} PDFs (${pct}%)…` 
-              : `Compressing: ${converted} of ${totalPages} pages converted (${pct}%)…`);
-          }
-        }, intervalMs);
-      } else if (mode === 'pdf-to-word') {
+      if (mode === 'pdf-to-word') {
         const langVal = $('wordLanguage') ? $('wordLanguage').value : 'auto';
         const langNames = {
           'auto': 'document',
@@ -3006,16 +3140,6 @@
           throw new Error(err);
         }
 
-        if (compressTicker) {
-          clearInterval(compressTicker);
-          compressTicker = null;
-          const totalPages = state.files.reduce((acc, f) => acc + (f.pageCount || 0), 0) || 1;
-          const isBatch = state.files.length > 1;
-          show(isBatch 
-            ? `Compressing: ${totalPages} of ${totalPages} pages converted across ${state.files.length} PDFs (100%)!` 
-            : `Compressing: ${totalPages} of ${totalPages} pages converted (100%)!`);
-        }
-
         const blob = await r.blob();
         let name = mode === 'pdf-to-word' ? (state.files[0].name.replace(/\.pdf$/i, '') + '-converted.docx')
                  : mode === 'word-to-pdf' ? (state.files[0].name.replace(/\.(docx|doc)$/i, '') + '-converted.pdf')
@@ -3023,32 +3147,16 @@
                    ? (state.files.length > 1 
                        ? `split-${state.worksheetPreset || 'worksheets'}-bundle.zip`
                        : (state.files[0].name.replace(/\.pdf$/i, '') + (state.worksheetPreset === 'cbse' ? '-cbse-sheets.zip' : (state.worksheetPreset === 'ssc' ? '-mcqs.zip' : '-worksheets.zip'))))
-                 : mode === 'compress'
-                   ? (state.files.length > 1
-                       ? 'compressed-pdfs-bundle.zip'
-                       : (state.files[0].name.replace(/\.pdf$/i, '') + '-compressed.pdf'))
                  : mode + '.pdf';
         const cd = r.headers.get('Content-Disposition');
         const m = cd && cd.match(/filename\*?=(?:UTF-8''|"?)([^";]+)/i);
         if (m) name = decodeURIComponent(m[1]);
 
-        const serverSavedPath = r.headers.get('X-Saved-Path');
-        const serverSavedName = r.headers.get('X-Saved-Filename') || name;
-        const finalPath = await deliverFile(blob, serverSavedName, serverSavedPath);
-
-        const openBtn = `<button type="button" class="open-folder-btn" onclick="openDownloadsFolder('${(finalPath || '').replace(/\\/g, '\\\\')}')">📁 Open Folder</button>`;
-        show(`Done! Saved to Downloads as <strong>${escapeHtml(serverSavedName)}</strong> ${openBtn}`, false, true, true);
+        await deliverFile(blob, name);
+        showDownloadSuccess(name, 'Downloads folder');
       } catch (e) {
-        if (compressTicker) {
-          clearInterval(compressTicker);
-          compressTicker = null;
-        }
         show(e.message || (mode === 'word-to-pdf' ? 'Could not convert Word document.' : 'Could not process PDF.'), true);
       } finally {
-        if (compressTicker) {
-          clearInterval(compressTicker);
-          compressTicker = null;
-        }
         setBusy(false);
       }
     };
