@@ -44,7 +44,7 @@ def run_server(port: int):
         port=port,
         threads=8,
         channel_timeout=600,
-        max_request_body_size=int(2.5 * 1024 * 1024 * 1024),  # 2.5 GB limit
+        max_request_body_size=int(1.5 * 1024 * 1024 * 1024),  # 1.5 GB limit
         cleanup_interval=30,
         _quiet=True,
     )
@@ -67,11 +67,23 @@ def wait_for_server(port: int, timeout: float = 12.0) -> bool:
 def get_icon_path() -> str:
     """Resolve icon path in both development and PyInstaller bundled environment."""
     if getattr(sys, "frozen", False):
-        base_dir = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+        exe_dir = os.path.dirname(sys.executable)
+        candidates = [
+            getattr(sys, "_MEIPASS", ""),
+            exe_dir,
+            os.path.join(exe_dir, "_internal"),
+        ]
+        for c in candidates:
+            if c:
+                p = os.path.join(c, "app_icon.ico")
+                if os.path.exists(p):
+                    return p
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
-    icon_path = os.path.join(base_dir, "app_icon.ico")
-    return icon_path if os.path.exists(icon_path) else None
+        p = os.path.join(base_dir, "app_icon.ico")
+        if os.path.exists(p):
+            return p
+    return None
 
 
 def main():

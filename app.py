@@ -34,21 +34,36 @@ except ImportError:
     Converter = None
 
 if getattr(sys, "frozen", False):
-    base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-    template_folder = os.path.join(base_dir, "templates")
-    static_folder = os.path.join(base_dir, "static") if os.path.exists(os.path.join(base_dir, "static")) else None
+    exe_dir = os.path.dirname(sys.executable)
+    candidates = [
+        getattr(sys, "_MEIPASS", None),
+        os.path.join(exe_dir, "_internal"),
+        exe_dir,
+        os.path.dirname(os.path.abspath(__file__)),
+    ]
+    template_folder = None
+    static_folder = None
+    for c in candidates:
+        if c and not template_folder and os.path.isdir(os.path.join(c, "templates")):
+            template_folder = os.path.join(c, "templates")
+        if c and not static_folder and os.path.isdir(os.path.join(c, "static")):
+            static_folder = os.path.join(c, "static")
+    if not template_folder:
+        template_folder = os.path.join(exe_dir, "_internal", "templates")
+    if not static_folder:
+        static_folder = os.path.join(exe_dir, "_internal", "static")
     app = Flask(__name__, template_folder=template_folder, static_folder=static_folder)
 else:
     app = Flask(__name__)
 
-# Configure 2.5 GB upload limit for large PDF processing
-MAX_UPLOAD_SIZE_BYTES = int(2.5 * 1024 * 1024 * 1024)  # 2.5 GB
+# Configure a 1.5 GiB upload limit for large PDF processing.
+MAX_UPLOAD_SIZE_BYTES = int(1.5 * 1024 * 1024 * 1024)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE_BYTES
 
 
 @app.errorhandler(413)
 def handle_too_large(e):
-    return jsonify({"error": "File exceeds the 2.5 GB upload limit (413 Request Entity Too Large)."}), 413
+    return jsonify({"error": "File exceeds the 1.5 GB upload limit (413 Request Entity Too Large)."}), 413
 
 
 def valid_pdf(upload):
@@ -105,72 +120,23 @@ def get_unique_filename(directory: str, filename: str) -> str:
 
 def smart_send_file(file_path_or_buffer, download_name: str, mimetype: str = "application/pdf"):
     """
-    Delivers file to client via HTTP while also guaranteeing a direct save to the local Downloads
-    folder when running on the user's desktop/localhost.
+    Delivers file to client via standard HTTP attachment.
+    The browser (Google Chrome) downloads the file directly to the user's Downloads folder
+    and displays it in Chrome's download manager.
     """
-    saved_path = None
-    saved_filename = None
-    saved_folder = None
-
-    is_local = request.remote_addr in ("127.0.0.1", "localhost", "::1", "testclient")
-    auto_save = request.form.get("save_to_downloads", "true").lower() == "true" or request.headers.get("X-Save-To-Downloads") == "true"
-
-    if is_local and auto_save:
-        try:
-            downloads_dir = get_downloads_folder()
-            dest_path = get_unique_filename(downloads_dir, download_name)
-            if isinstance(file_path_or_buffer, str) and os.path.exists(file_path_or_buffer):
-                shutil.copy2(file_path_or_buffer, dest_path)
-            elif hasattr(file_path_or_buffer, "getvalue"):
-                with open(dest_path, "wb") as f:
-                    f.write(file_path_or_buffer.getvalue())
-            elif hasattr(file_path_or_buffer, "read"):
-                file_path_or_buffer.seek(0)
-                with open(dest_path, "wb") as f:
-                    shutil.copyfileobj(file_path_or_buffer, f)
-                file_path_or_buffer.seek(0)
-
-            if os.path.exists(dest_path):
-                saved_path = dest_path
-                saved_filename = os.path.basename(dest_path)
-                saved_folder = downloads_dir
-                logger.info(f"[DOWNLOAD SAVED] Direct saved to Downloads: {dest_path}")
-        except Exception as e:
-            logger.warning(f"Could not auto-save to downloads folder: {e}")
-
     resp = send_file(
         file_path_or_buffer,
         as_attachment=True,
         download_name=download_name,
         mimetype=mimetype,
     )
-    if saved_path:
-        resp.headers["X-Saved-Path"] = saved_path
-        resp.headers["X-Saved-Filename"] = saved_filename
-        resp.headers["X-Saved-Folder"] = saved_folder
-        resp.headers["Access-Control-Expose-Headers"] = "X-Saved-Path, X-Saved-Filename, X-Saved-Folder, Content-Disposition"
+    resp.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
     return resp
 
 
 @app.get("/")
 def home():
     return render_template("home.html")
-
-
-COMING_SOON = {
-    "pdf-to-markdown": {
-        "title": "PDF to Markdown",
-        "description": "Extract structured text, headers, lists, and tables into clean, LLM-ready Markdown (.md) documents.",
-        "badge": "Markdown / AI Ready",
-        "icon": "markdown"
-    },
-    "pdf-to-excel": {
-        "title": "PDF to Excel",
-        "description": "Automatically detect tabular data and financial statements in PDFs and export them directly to Excel (.xlsx) spreadsheets.",
-        "badge": "Spreadsheet OCR",
-        "icon": "excel"
-    }
-}
 
 
 @app.get("/healthz")
@@ -183,21 +149,23 @@ def healthz():
 def open_folder():
     data = request.get_json(silent=True) or {}
     path = data.get("path")
+    logger.info(f"[OPEN FOLDER] Request received for path: {path}")
     try:
-        if path and os.path.exists(path):
-            if sys.platform == "win32":
-                subprocess.Popen(f'explorer /select,"{os.path.normpath(path)}"')
-            else:
-                os.system(f'open "{os.path.dirname(path)}"')
-            return jsonify({"status": "ok", "opened": path})
-
         folder = get_downloads_folder()
+        target = folder
+        if path and os.path.exists(path):
+            target = path if os.path.isdir(path) else os.path.dirname(path)
+
+        logger.info(f"[OPEN FOLDER] Opening directory in File Explorer: {target}")
         if sys.platform == "win32":
-            os.startfile(folder)
+            os.startfile(target)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", target])
         else:
-            os.system(f'open "{folder}"')
-        return jsonify({"status": "ok", "opened": folder})
+            subprocess.Popen(["xdg-open", target])
+        return jsonify({"status": "ok", "opened": target, "type": "folder"})
     except Exception as e:
+        logger.exception("Failed to open folder: %s", e)
         return jsonify({"error": str(e)}), 500
 
 
@@ -225,8 +193,6 @@ def save_to_downloads():
 def tool_page(tool: str):
     if tool in {"merge", "split", "compress", "pdf-to-word", "word-to-pdf", "worksheet-splitter", "oly-ete-splitter"}:
         return render_template("tool.html", tool=tool)
-    if tool in COMING_SOON:
-        return render_template("coming_soon.html", tool=tool, info=COMING_SOON[tool])
     return "Page not found", 404
 
 
@@ -354,11 +320,13 @@ def previews():
 
 
 COMPRESSION_PRESETS = {
-    "balanced": {"dpi": 72, "quality": 55, "max_mb": 15.0},
-    "high": {"dpi": 100, "quality": 68, "max_mb": 30.0},
-    "best": {"dpi": 100, "quality": 68, "max_mb": 30.0},
-    "ultra": {"dpi": 130, "quality": 78, "max_mb": 45.0},
-    "small": {"dpi": 72, "quality": 55, "max_mb": 15.0},
+    "extreme": {"dpi": 60, "quality": 45, "max_mb": 10.0, "label": "Ultra Low — up to 10 MB"},
+    "ultra-low": {"dpi": 60, "quality": 45, "max_mb": 10.0, "label": "Ultra Low — up to 10 MB"},
+    "balanced": {"dpi": 72, "quality": 55, "max_mb": 15.0, "label": "Balanced — up to 15 MB"},
+    "high": {"dpi": 100, "quality": 68, "max_mb": 30.0, "label": "High Clarity — up to 30 MB"},
+    "best": {"dpi": 100, "quality": 68, "max_mb": 30.0, "label": "High Clarity — up to 30 MB"},
+    "ultra": {"dpi": 130, "quality": 78, "max_mb": 45.0, "label": "Ultra Clarity — up to 45 MB"},
+    "small": {"dpi": 60, "quality": 45, "max_mb": 10.0, "label": "Ultra Low — up to 10 MB"},
 }
 
 
@@ -472,33 +440,6 @@ def compress_single_pdf_optimized(
             pass
 
     t_analysis = time.perf_counter() - t_analysis_start
-
-    # If no candidate images, perform stream compaction with garbage=2, deflate=True
-    if not candidates:
-        t_save_start = time.perf_counter()
-        doc.save(output_path, garbage=2, deflate=True, use_objstms=1)
-        doc.close()
-        t_save = time.perf_counter() - t_save_start
-        out_size = os.path.getsize(output_path)
-        if out_size >= input_size and input_size <= target_bytes:
-            shutil.copyfile(input_path, output_path)
-            out_size = input_size
-        out_mb = out_size / (1024 * 1024)
-        pct_saved = (1.0 - (out_size / input_size)) * 100 if input_size > 0 else 0.0
-        return {
-            "input_mb": input_mb,
-            "output_mb": out_mb,
-            "target_mb": target_max_mb,
-            "saved_pct": pct_saved,
-            "total_time": time.perf_counter() - t_start,
-            "images_found": total_images,
-            "images_opt": 0,
-            "attempts": 1,
-            "open_time": t_open,
-            "analysis_time": t_analysis,
-            "opt_time": 0.0,
-            "save_time": t_save,
-        }
 
     # 3. Dynamically compute resolution and quality budget to strictly hit the ceiling
     base_dpi = cfg["dpi"]
@@ -631,15 +572,18 @@ def compress_single_pdf_optimized(
                     pass
         return replaced
 
-    images_opt = optimize_images_in_doc(
-        doc,
-        dpi_target,
-        quality,
-        candidates,
-        force_scale=1.0,
-        cur_dim_limit=dim_limit_scale,
-    )
-    t_opt = time.perf_counter() - t_opt_start
+    t_opt = 0.0
+    images_opt = 0
+    if candidates:
+        images_opt = optimize_images_in_doc(
+            doc,
+            dpi_target,
+            quality,
+            candidates,
+            force_scale=1.0,
+            cur_dim_limit=dim_limit_scale,
+        )
+        t_opt = time.perf_counter() - t_opt_start
 
     # 5. Save optimized document using garbage=2, deflate=True, use_objstms=1 (super fast)
     t_save_start = time.perf_counter()
@@ -649,7 +593,8 @@ def compress_single_pdf_optimized(
     attempts = 1
 
     # 6. Multi-pass iterative refinement if output still exceeds chosen ceiling limit
-    while out_size > target_bytes and attempts < 4:
+    while out_size > target_bytes and attempts < 2 and candidates:
+        prev_size = out_size
         attempts += 1
         excess_ratio = out_size / target_bytes
         dim_scale = min(0.85, (1.0 / math.sqrt(excess_ratio)) * 0.90)
@@ -680,10 +625,113 @@ def compress_single_pdf_optimized(
         doc = fitz.open(output_path)
         t_save += (time.perf_counter() - t_save_extra_start)
         out_size = os.path.getsize(output_path)
+        # If image optimization yielded negligible further reduction (< 4%),
+        # remaining bulk is vector/Form data, so immediately jump to hybrid pass!
+        if (prev_size - out_size) < (prev_size * 0.04):
+            break
 
-    doc.close()
+    # 7. HYBRID PASS: If output STILL exceeds target ceiling (e.g. heavy vector curves / Form XObjects),
+    # automatically consolidate pages into crisp compressed backgrounds with searchable text on top!
+    if out_size > target_bytes:
+        attempts += 1
+        doc.close()
+        src_doc = fitz.open(output_path)
+        hybrid_doc = fitz.open()
 
-    # Never produce output larger than input if input was already within ceiling
+        if target_max_mb <= 10.0:
+            h_dpi = 100
+            h_q = 50
+        elif target_max_mb <= 15.0:
+            h_dpi = 115
+            h_q = 55
+        elif target_max_mb <= 30.0:
+            h_dpi = 135
+            h_q = 65
+        else:
+            h_dpi = 150
+            h_q = 72
+
+        for pno in range(len(src_doc)):
+            page = src_doc[pno]
+            rect = page.rect
+            pix = page.get_pixmap(dpi=h_dpi)
+            pil_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            buf = io.BytesIO()
+            pil_img.save(buf, format="JPEG", quality=h_q, optimize=True)
+            img_b = buf.getvalue()
+
+            new_page = hybrid_doc.new_page(width=rect.width, height=rect.height)
+            new_page.insert_image(rect, stream=img_b)
+
+            # Preserve searchable / selectable text on top
+            blocks = page.get_text("blocks")
+            for b in blocks:
+                if len(b) >= 5 and b[4].strip():
+                    txt = b[4].strip()
+                    r = fitz.Rect(b[0], b[1], b[2], b[3])
+                    try:
+                        new_page.insert_textbox(r, txt, fontsize=10, render_mode=3)
+                    except Exception:
+                        pass
+
+        num_hybrid_pages = len(src_doc)
+        src_doc.close()
+        temp_h = output_path + ".hybrid.pdf"
+        hybrid_doc.save(temp_h, garbage=2, deflate=True, use_objstms=1)
+        hybrid_doc.close()
+        shutil.move(temp_h, output_path)
+        out_size = os.path.getsize(output_path)
+        images_opt += num_hybrid_pages
+    else:
+        doc.close()
+
+    # 8. RE-COMPRESSION GUARANTEE: If re-compressing an already compressed file with the SAME preset,
+    # and out_size is >= input_size, run tightening so it actively reduces further!
+    if out_size >= input_size:
+        try:
+            src_doc = fitz.open(input_path)
+            num_src_pages = len(src_doc)
+            if num_src_pages > 0:
+                hybrid_doc = fitz.open()
+                h_dpi = max(60, int(base_dpi * 0.85))
+                h_q = max(35, int(base_q * 0.82))
+                for pno in range(num_src_pages):
+                    page = src_doc[pno]
+                    rect = page.rect
+                    pix = page.get_pixmap(dpi=h_dpi)
+                    pil_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    buf = io.BytesIO()
+                    pil_img.save(buf, format="JPEG", quality=h_q, optimize=True)
+                    new_page = hybrid_doc.new_page(width=rect.width, height=rect.height)
+                    new_page.insert_image(rect, stream=buf.getvalue())
+                    # Preserve searchable / selectable text on top
+                    blocks = page.get_text("blocks")
+                    for b in blocks:
+                        if len(b) >= 5 and b[4].strip():
+                            txt = b[4].strip()
+                            r = fitz.Rect(b[0], b[1], b[2], b[3])
+                            try:
+                                new_page.insert_textbox(r, txt, fontsize=10, render_mode=3)
+                            except Exception:
+                                pass
+                src_doc.close()
+                temp_re = output_path + ".recomp.pdf"
+                hybrid_doc.save(temp_re, garbage=2, deflate=True, use_objstms=1)
+                hybrid_doc.close()
+                recomp_size = os.path.getsize(temp_re)
+                if recomp_size < input_size:
+                    shutil.move(temp_re, output_path)
+                    out_size = recomp_size
+                    images_opt += num_src_pages
+                else:
+                    try:
+                        os.remove(temp_re)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    # Safety: Never produce output larger than input if input was already within ceiling
     if out_size >= input_size and input_size <= target_bytes:
         shutil.copyfile(input_path, output_path)
         out_size = input_size
@@ -1027,25 +1075,45 @@ def compress_pdf():
                 stats["total_time"],
             )
 
-            @after_this_request
-            def cleanup_single(response):
-                for p in input_paths:
-                    try:
-                        if os.path.exists(p):
-                            os.remove(p)
-                    except Exception:
-                        pass
+            with open(output_path, "rb") as _f:
+
+
+                output_bytes = _f.read()
+
+
+            for p in input_paths:
+
+
                 try:
-                    if output_path and os.path.exists(output_path):
-                        os.remove(output_path)
-                except Exception:
-                    pass
-                return response
+
+
+                    if os.path.exists(p): os.remove(p)
+
+
+                except Exception: pass
+
+
+            try:
+
+
+                if output_path and os.path.exists(output_path): os.remove(output_path)
+
+
+            except Exception: pass
+
 
             return smart_send_file(
-                output_path,
+
+
+                io.BytesIO(output_bytes),
+
+
                 download_name=output_name(upload.filename, "compressed"),
+
+
                 mimetype="application/pdf",
+
+
             )
 
         # Case 2: Batch conversion (Multiple PDF files) -> Output as ZIP archive
@@ -1107,31 +1175,57 @@ def compress_pdf():
             t_batch_total,
         )
 
-        @after_this_request
-        def cleanup_batch(response):
-            for p in input_paths:
-                try:
-                    if os.path.exists(p):
-                        os.remove(p)
-                except Exception:
-                    pass
-            for p in temp_compressed_files:
-                try:
-                    if os.path.exists(p):
-                        os.remove(p)
-                except Exception:
-                    pass
+        with open(output_path, "rb") as _f:
+
+
+            output_bytes = _f.read()
+
+
+        for p in input_paths:
+
+
             try:
-                if output_path and os.path.exists(output_path):
-                    os.remove(output_path)
-            except Exception:
-                pass
-            return response
+
+
+                if os.path.exists(p): os.remove(p)
+
+
+            except Exception: pass
+
+
+        for p in temp_compressed_files:
+
+
+            try:
+
+
+                if os.path.exists(p): os.remove(p)
+
+
+            except Exception: pass
+
+
+        try:
+
+
+            if output_path and os.path.exists(output_path): os.remove(output_path)
+
+
+        except Exception: pass
+
 
         return smart_send_file(
-            output_path,
+
+
+            io.BytesIO(output_bytes),
+
+
             download_name="compressed-pdfs-bundle.zip",
+
+
             mimetype="application/zip",
+
+
         )
     except Exception as error:
         logger.exception("Compress PDF failed: %s", error)
@@ -1591,4 +1685,13 @@ def worksheet_splitter_api():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    import waitress
+    logger.info(f"Starting Waitress production WSGI server on http://127.0.0.1:{port}")
+    waitress.serve(
+        app,
+        host="0.0.0.0",
+        port=port,
+        threads=8,
+        channel_timeout=600,
+        max_request_body_size=MAX_UPLOAD_SIZE_BYTES,
+    )
